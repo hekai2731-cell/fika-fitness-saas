@@ -663,6 +663,10 @@ export function PlanningPage({
   const [deleteMenu, setDeleteMenu] = useState<LongPressDeleteMenu | null>(null);
   const pressTimerRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+  const [blockTitleDraft, setBlockTitleDraft] = useState('');
+  const [editingWeekBrief, setEditingWeekBrief] = useState(false);
+  const [weekBriefDraft, setWeekBriefDraft] = useState('');
   const [aiConfirmMode, setAiConfirmMode] = useState<AiConfirmMode | null>(null);
   const [planConfirmForm, setPlanConfirmForm] = useState<PlanConfirmForm>(defaultPlanConfirmForm);
   const [aiSettings, setAiSettings] = useState<AiSettings>(() => readAiSettings());
@@ -827,6 +831,28 @@ export function PlanningPage({
       ),
     };
     persistClient(next);
+  };
+
+  const saveSelectedWeekBrief = () => {
+    if (!client || !selectedBlock || !selectedWeek) return;
+    const text = weekBriefDraft.trim();
+    const next: Client = {
+      ...client,
+      blocks: (client.blocks || []).map((b) =>
+        b.id !== selectedBlock.id
+          ? b
+          : {
+              ...b,
+              training_weeks: (b.training_weeks || []).map((w) =>
+                w.id !== selectedWeek.id
+                  ? w
+                  : ({ ...(w as any), week_brief: text, week_theme: text || (w as any).week_theme || '' } as any),
+              ),
+            },
+      ),
+    };
+    persistClient(next);
+    setEditingWeekBrief(false);
   };
 
   const savePlanNow = () => {
@@ -1010,16 +1036,28 @@ export function PlanningPage({
     }
   };
 
-  const renameBlockById = (blockId: string) => {
+  const renameBlockById = (blockId: string, nextTitleRaw?: string) => {
     if (!client) return;
     const current = (client.blocks || []).find(b => b.id === blockId);
-    const nextTitle = window.prompt('修改 Block 名称', current?.title || '');
+    const nextTitle = nextTitleRaw == null ? window.prompt('修改 Block 名称', current?.title || '') : nextTitleRaw;
     if (!nextTitle || !nextTitle.trim()) return;
     const next: Client = {
       ...client,
       blocks: (client.blocks || []).map(b => (b.id === blockId ? { ...b, title: nextTitle.trim() } : b)),
     };
     persistClient(next);
+  };
+
+  const parseBlockTitleLines = (title: string) => {
+    const text = String(title || '').trim();
+    const firstChineseIndex = text.search(/[\u4e00-\u9fff]/);
+    if (firstChineseIndex > 0) {
+      return {
+        line1: text.slice(0, firstChineseIndex).trim(),
+        line2: text.slice(firstChineseIndex).trim(),
+      };
+    }
+    return { line1: text, line2: '' };
   };
 
   const editWeekById = (weekId: string) => {
@@ -1259,6 +1297,112 @@ export function PlanningPage({
     const clientIdentifier = String((client as any).roadCode || client.id || 'unknown');
     setLoadingWeek(true);
     setError(null);
+
+    const applyWeekOutline = (outline: any) => {
+      const list = (outline as any)?.days || [];
+      const outlineByDayKey: Record<string, { day_focus: string; session_name: string }> = (Array.isArray(list) ? list : []).reduce((acc: any, d: any) => {
+        const k = String(d?.day_key || d?.dayKey || d?.day || d?.day_of_week || '');
+        if (k) acc[k] = { day_focus: String(d?.day_focus || ''), session_name: String(d?.session_name || '') };
+        return acc;
+      }, {});
+
+      const next: Client = {
+        ...client,
+        blocks: (client.blocks || []).map((b) =>
+          b.id !== selectedBlock.id
+            ? b
+            : {
+                ...b,
+                training_weeks: (b.training_weeks || []).map((w) =>
+                  w.id !== selectedWeek.id
+                    ? w
+                    : {
+                        ...w,
+                        weekly_sessions: Number((outline as any)?.weekly_sessions || (outline as any)?.sessions_per_week || 0),
+                        week_brief: String((outline as any)?.week_brief || (outline as any)?.week_theme || ''),
+                        days: (w.days || []).map((d, di) => {
+                          const byName = outlineByDayKey[String(d.day)] || outlineByDayKey[String(d.day || '').toUpperCase()] || null;
+                          const byIndex = outlineByDayKey[`day${di + 1}`] || null;
+                          const dayOutline = byName || byIndex;
+                          if (!dayOutline) return d;
+                          return {
+                            ...d,
+                            name: dayOutline.session_name || d.name,
+                            focus: dayOutline.day_focus || d.focus,
+                          };
+                        }),
+                      },
+                ),
+              },
+        ),
+      };
+      persistClient(next);
+    };
+
+    const localOutline = (() => {
+      const freq = Number(planConfirmForm.weeklyFrequency || (selectedWeek.days || []).length || 3);
+      const clampedFreq = Math.max(1, Math.min(7, freq));
+      const weekList = selectedBlock.training_weeks || [];
+      const currentWeekIndex = weekList.findIndex((w) => w.id === selectedWeek.id);
+      const prevWeek = currentWeekIndex > 0 ? weekList[currentWeekIndex - 1] : null;
+      const prevFocusText = (prevWeek?.days || [])
+        .map((d: any) => String(d.focus || d.name || ''))
+        .filter(Boolean);
+      const prevFocusKeywords = Array.from(
+        new Set(
+          prevFocusText
+            .flatMap((t) => t.split(/[、,，·\s/]+/))
+            .map((x) => x.trim())
+            .filter((x) => x.length >= 2),
+        ),
+      );
+
+      const focusAreas =
+        planConfirmForm.weekFocusAreas.length > 0
+          ? planConfirmForm.weekFocusAreas
+          : prevFocusKeywords.length > 0
+            ? prevFocusKeywords.slice(0, 3)
+            : ['全身'];
+      const focus = focusAreas.join('、');
+      const directionLabel = WEEK_DIRECTION_OPTIONS.find((o) => o.value === planConfirmForm.weekDirection)?.label || '综合均衡';
+      const note = planConfirmForm.weekNote.trim();
+      const priorityText = planConfirmForm.priorityGoals.length > 0 ? planConfirmForm.priorityGoals.join('、') : '动作质量与恢复平衡';
+      const blockParts = parseBlockTitleLines(String(selectedBlock.title || ''));
+      const blockContext = [blockParts.line1, blockParts.line2].filter(Boolean).join(' · ');
+
+      const patternMap: Record<string, string[]> = {
+        strength: ['力量推进', '复合动作', '稳定控制', '恢复激活'],
+        conditioning: ['代谢循环', '心肺耐力', '节奏冲刺', '恢复调节'],
+        technique: ['动作模式', '技术打磨', '控制稳定', '低冲击整合'],
+        recovery: ['激活恢复', '灵活性', '低强度循环', '恢复调节'],
+        balanced: ['力量+体能', '上/下肢协同', '核心整合', '恢复调节'],
+      };
+      const directionPattern = patternMap[planConfirmForm.weekDirection] || patternMap.balanced;
+
+      const days = (selectedWeek.days || []).map((d: any, i: number) => ({
+        day_key: d.day || `day${i + 1}`,
+        day_focus:
+          d.focus ||
+          `${focusAreas[i % focusAreas.length]} · ${directionPattern[i % directionPattern.length]}${i === clampedFreq - 1 ? ' · 恢复节奏' : ''}`,
+        session_name:
+          d.name ||
+          `${d.day || `Day ${i + 1}`} · ${focusAreas[i % focusAreas.length]}${
+            i === 0 ? ' 启动' : i === clampedFreq - 1 ? ' 回收' : ' 强化'
+          }`,
+      }));
+      return {
+        weekly_sessions: clampedFreq,
+        week_brief:
+          note ||
+          `本周 ${clampedFreq} 次训练，基于 ${blockContext || '当前Block'} 延续推进，方向：${directionLabel}；重点聚焦${focus}，优先目标为${priorityText}。${
+            prevFocusText.length ? `延续上周训练逻辑（${prevFocusText.slice(0, 2).join('、')}）并做负荷递进。` : ''
+          }`,
+        days,
+      };
+    })();
+
+    applyWeekOutline(localOutline);
+
     try {
       const outline = await fetchJsonOrThrow(apiUrl('/api/week-plan'), {
         method: 'POST',
@@ -1287,43 +1431,9 @@ export function PlanningPage({
           })),
         }),
       });
-
-      const list = (outline as any)?.days || [];
-      const outlineByDayKey: Record<string, { day_focus: string; session_name: string }> = (Array.isArray(list) ? list : []).reduce((acc: any, d: any) => {
-        const k = String(d?.day_key || d?.dayKey || d?.day || d?.day_of_week || '');
-        if (k) acc[k] = { day_focus: String(d?.day_focus || ''), session_name: String(d?.session_name || '') };
-        return acc;
-      }, {});
-
-      const next: Client = {
-        ...client,
-        blocks: (client.blocks || []).map(b =>
-          b.id !== selectedBlock.id ? b : {
-            ...b,
-            training_weeks: (b.training_weeks || []).map(w =>
-              w.id !== selectedWeek.id ? w : {
-                ...w,
-                weekly_sessions: Number((outline as any)?.weekly_sessions || (outline as any)?.sessions_per_week || 0),
-                week_brief: String((outline as any)?.week_brief || (outline as any)?.week_theme || ''),
-                days: (w.days || []).map((d, di) => {
-                  const byName = outlineByDayKey[String(d.day)] || outlineByDayKey[String(d.day || '').toUpperCase()] || null;
-                  const byIndex = outlineByDayKey[`day${di + 1}`] || null;
-                  const dayOutline = byName || byIndex;
-                  if (!dayOutline) return d;
-                  return {
-                    ...d,
-                    name: dayOutline.session_name || d.name,
-                    focus: dayOutline.day_focus || d.focus,
-                  };
-                }),
-              }
-            ),
-          }
-        ),
-      };
-      persistClient(next);
+      applyWeekOutline(outline);
     } catch (e: any) {
-      setError('周计划生成失败：' + (e?.message || String(e)));
+      console.warn('[AI] Week plan API unavailable, kept instant local outline:', e?.message || String(e));
     } finally {
       setLoadingWeek(false);
     }
@@ -1515,7 +1625,11 @@ export function PlanningPage({
                 setSelectedWeekId(wk?.id || null);
                 setSelectedDayId(wk?.days?.[0]?.id || null);
               }}
-              onDoubleClick={(e) => { e.stopPropagation(); renameBlockById(b.id); }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingBlockId(b.id);
+                setBlockTitleDraft(String(b.title || ''));
+              }}
               onMouseDown={(e) => startLongPress(e, { type: 'block', blockId: b.id })}
               onMouseUp={cancelLongPress}
               onMouseLeave={cancelLongPress}
@@ -1526,7 +1640,39 @@ export function PlanningPage({
               tabIndex={0}
             >
               <div className="phase-mini">BLOCK {bi + 1}</div>
-              <div className="phase-name">{b.title}</div>
+              {editingBlockId === b.id ? (
+                <textarea
+                  autoFocus
+                  className="phase-name-edit"
+                  value={blockTitleDraft}
+                  onChange={(e) => setBlockTitleDraft(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={() => {
+                    renameBlockById(b.id, blockTitleDraft);
+                    setEditingBlockId(null);
+                    setBlockTitleDraft('');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setEditingBlockId(null);
+                      setBlockTitleDraft('');
+                    }
+                  }}
+                />
+              ) : (
+                <div className="phase-name">
+                  {(() => {
+                    const parts = parseBlockTitleLines(String(b.title || ''));
+                    return (
+                      <>
+                        <span className="phase-name-line phase-name-line-main">{parts.line1 || 'Block'}</span>
+                        <span className="phase-name-line phase-name-line-sub">{parts.line2 || '\u00A0'}</span>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
               <div className="phase-meta">{(b.training_weeks || []).length} Weeks</div>
             </div>
           ))}
@@ -1640,11 +1786,51 @@ export function PlanningPage({
                   <div className="week-intro-main">
                     <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--s900)', marginTop: 4 }}>本周重点介绍</div>
                     <div style={{ fontSize: 11, color: 'var(--s500)', fontWeight: 700, letterSpacing: '.08em', marginTop: 4 }}>WEEKLY FOCUS OVERVIEW</div>
-                    <div style={{ fontSize: 13, color: 'var(--s700)', marginTop: 10, lineHeight: 1.65 }}>
-                      {(selectedWeek as any)?.week_theme || '本周重点聚焦动作质量与强度推进，保持恢复节奏。'}
-                    </div>
+                    {editingWeekBrief ? (
+                      <textarea
+                        autoFocus
+                        value={weekBriefDraft}
+                        onChange={(e) => setWeekBriefDraft(e.target.value)}
+                        onBlur={saveSelectedWeekBrief}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setEditingWeekBrief(false);
+                            setWeekBriefDraft('');
+                          }
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            saveSelectedWeekBrief();
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          marginTop: 10,
+                          minHeight: 88,
+                          borderRadius: 10,
+                          border: '1px solid var(--s200)',
+                          background: 'rgba(255,255,255,.92)',
+                          padding: '10px 12px',
+                          fontSize: 13,
+                          lineHeight: 1.65,
+                          color: 'var(--s700)',
+                          outline: 'none',
+                          resize: 'vertical',
+                        }}
+                      />
+                    ) : (
+                      <div
+                        onDoubleClick={() => {
+                          setWeekBriefDraft(String((selectedWeek as any)?.week_brief || (selectedWeek as any)?.week_theme || ''));
+                          setEditingWeekBrief(true);
+                        }}
+                        title="双击可修改"
+                        style={{ fontSize: 13, color: 'var(--s700)', marginTop: 10, lineHeight: 1.65, cursor: 'text' }}
+                      >
+                        {(selectedWeek as any)?.week_brief || (selectedWeek as any)?.week_theme || '本周重点聚焦动作质量与强度推进，保持恢复节奏。'}
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                      <span className="badge bp">VOLUME: MODERATE</span>
+                      <span className="badge bp">本周频次: {Number((selectedWeek as any)?.weekly_sessions || 0) > 0 ? `${Number((selectedWeek as any)?.weekly_sessions)} 次` : '待生成'}</span>
                       <span className="badge bp">INTENSITY: HIGH</span>
                     </div>
                   </div>
@@ -1831,13 +2017,13 @@ export function PlanningPage({
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: 'min(560px, 100%)',
-              maxHeight: '78vh',
+              width: 'min(680px, 100%)',
+              maxHeight: '82vh',
               borderRadius: 16,
               border: '1px solid rgba(202,208,224,.9)',
               background: 'linear-gradient(165deg, #f5f6fb, #f0f2f8)',
               boxShadow: '0 18px 38px rgba(31,41,74,.22)',
-              padding: 14,
+              padding: 18,
               overflowY: 'auto',
             }}
           >
@@ -1868,12 +2054,12 @@ export function PlanningPage({
                     style={{
                       marginTop: 8,
                       width: '100%',
-                      minHeight: 64,
+                      minHeight: 96,
                       borderRadius: 12,
                       border: '2px solid #B6B9FF',
                       background: '#FFFFFF',
-                      padding: '9px 10px',
-                      fontSize: 13,
+                      padding: '12px 12px',
+                      fontSize: 14,
                       color: '#25304A',
                       outline: 'none',
                     }}
@@ -1946,12 +2132,12 @@ export function PlanningPage({
                     style={{
                       marginTop: 8,
                       width: '100%',
-                      minHeight: 64,
+                      minHeight: 96,
                       borderRadius: 12,
                       border: '1px solid #D9DCE6',
                       background: '#FFFFFF',
-                      padding: '9px 10px',
-                      fontSize: 13,
+                      padding: '12px 12px',
+                      fontSize: 14,
                       color: '#25304A',
                       outline: 'none',
                     }}
@@ -2052,12 +2238,12 @@ export function PlanningPage({
                     style={{
                       marginTop: 8,
                       width: '100%',
-                      minHeight: 64,
+                      minHeight: 88,
                       borderRadius: 12,
                       border: '1px solid #D9DCE6',
                       background: '#FFFFFF',
-                      padding: '9px 10px',
-                      fontSize: 13,
+                      padding: '12px 12px',
+                      fontSize: 14,
                       color: '#25304A',
                       outline: 'none',
                     }}
@@ -2187,12 +2373,12 @@ export function PlanningPage({
                     style={{
                       marginTop: 8,
                       width: '100%',
-                      minHeight: 64,
+                      minHeight: 88,
                       borderRadius: 12,
                       border: '1px solid #D9DCE6',
                       background: '#FFFFFF',
-                      padding: '9px 10px',
-                      fontSize: 13,
+                      padding: '12px 12px',
+                      fontSize: 14,
                       color: '#25304A',
                       outline: 'none',
                     }}
@@ -2442,15 +2628,16 @@ export function PlanningPage({
         .planning-premium .phase-card {
           border-radius: 18px;
           padding: 16px 16px 14px;
-          min-height: 187.5px;
-          border: 1px solid rgba(255,255,255,.92);
-          background: linear-gradient(160deg, rgba(248,250,255,.9), rgba(232,236,255,.76));
+          height: 187.5px;
+          border: 1px solid rgba(184,194,223,.8);
+          background: linear-gradient(165deg, rgba(255,255,255,.96), rgba(239,244,255,.9));
           display: flex;
           flex-direction: column;
+          transition: .22s ease;
           cursor: pointer;
-          transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease, background .24s ease;
           backdrop-filter: blur(8px);
           -webkit-backdrop-filter: blur(8px);
+          overflow: hidden;
         }
 
         .planning-premium .phase-card.on {
@@ -2510,10 +2697,52 @@ export function PlanningPage({
 
         .planning-premium .phase-name {
           margin-top: 8px;
-          font-size: 21px;
+          font-size: 18px;
           font-weight: 800;
           color: var(--s900);
           line-height: 1.15;
+          min-height: 48px;
+          word-break: break-word;
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-start;
+          gap: 2px;
+          overflow: hidden;
+        }
+
+        .planning-premium .phase-name-line {
+          display: block;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .planning-premium .phase-name-line-main {
+          font-size: 18px;
+          font-weight: 800;
+        }
+
+        .planning-premium .phase-name-line-sub {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--s700);
+        }
+
+        .planning-premium .phase-name-edit {
+          margin-top: 8px;
+          width: 100%;
+          min-height: 48px;
+          max-height: 48px;
+          border-radius: 8px;
+          border: 1px solid rgba(167,178,211,.76);
+          background: rgba(255,255,255,.94);
+          padding: 6px 8px;
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--s900);
+          line-height: 1.25;
+          resize: none;
+          outline: none;
         }
 
         .planning-premium .phase-meta {
