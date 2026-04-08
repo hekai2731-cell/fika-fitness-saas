@@ -142,6 +142,19 @@ function persistClientsToStores(clients: Client[]) {
   localStorage.setItem(COACH_CLIENTS_KEY, JSON.stringify(clients));
 }
 
+async function syncClientToServer(client: Client) {
+  try {
+    const res = await fetch(`/api/clients/${encodeURIComponent(client.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(client),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (err) {
+    console.error('[AdminPortal] Failed to sync client to server:', err);
+  }
+}
+
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function sanitizeCodeInput(raw: string): string {
@@ -411,6 +424,10 @@ function CodesTab({
     const updated = clients.map((c) => (c.id === clientId ? { ...c, roadCode: nextCode } : c));
     setClientCodeDrafts((prev) => ({ ...prev, [clientId]: nextCode }));
     onClientsChange(updated);
+    const changedClient = updated.find((c) => c.id === clientId);
+    if (changedClient) {
+      void syncClientToServer(changedClient);
+    }
   };
 
   const saveCoachCode = (oldCode: string) => {
@@ -436,6 +453,11 @@ function CodesTab({
     });
     onCoachesChange(updatedCoaches);
     onClientsChange(updatedClients);
+    updatedClients
+      .filter((c) => String(c.coachCode || '') === String(nextCode))
+      .forEach((client) => {
+        void syncClientToServer(client);
+      });
   };
 
   return (
@@ -606,6 +628,13 @@ function CoachesTab({
     setForm({ name: '', specialties: '' });
   };
 
+  const deleteCoach = (coach: Coach) => {
+    if (!window.confirm(`确认删除教练「${coach.name}」(${coach.code})？\n该教练下的客户将变为未分配状态。`)) return;
+    const updated = coaches.filter((c) => c.code !== coach.code);
+    onCoachesChange(updated);
+    lsSet('coaches', updated);
+  };
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
@@ -654,9 +683,17 @@ function CoachesTab({
                   {myClients.length === 0 && <span style={{ fontSize: 11, color: 'var(--s400)' }}>暂无客户</span>}
                 </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
+              <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                 <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--p)' }}>{myClients.length}</div>
                 <div className="lbl">客户</div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: '#B42318', fontSize: 11 }}
+                  onClick={() => deleteCoach(ch)}
+                  title="删除教练"
+                >
+                  删除
+                </button>
               </div>
             </div>
           );
@@ -754,6 +791,38 @@ function ClientsTab({
     const dt = new Date(value);
     if (Number.isNaN(dt.getTime())) return value;
     return dt.toLocaleString('zh-CN', { hour12: false });
+  };
+
+  const softDeleteClient = (client: Client) => {
+    if (!window.confirm(`确认删除客户「${client.name}」？\n删除后客户将移至"已删除客户"列表，可在管理端恢复或彻底删除。`)) return;
+    const updated = clients.map((c) =>
+      c.id === client.id
+        ? {
+            ...c,
+            deletedAt: new Date().toISOString(),
+            deletedByCoachCode: 'ADMIN',
+            deletedByCoachName: '管理员',
+          }
+        : c
+    );
+    onClientsChange(updated);
+    persistClientsToStores(updated);
+  };
+
+  const restoreClient = (client: Client) => {
+    if (!window.confirm(`确认恢复客户「${client.name}」？`)) return;
+    const updated = clients.map((c) =>
+      c.id === client.id
+        ? {
+            ...c,
+            deletedAt: undefined,
+            deletedByCoachCode: undefined,
+            deletedByCoachName: undefined,
+          }
+        : c
+    );
+    onClientsChange(updated);
+    persistClientsToStores(updated);
   };
 
   const hardDeleteClient = (client: Client) => {
@@ -855,9 +924,18 @@ function ClientsTab({
                   </td>
                   <td style={{ padding: '10px 12px' }}>{(c.sessions || []).length}</td>
                   <td style={{ padding: '10px 12px' }}>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setViewPlanClient(c)}>
-                      查看计划
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setViewPlanClient(c)}>
+                        查看计划
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        style={{ background: '#B42318', color: '#fff' }}
+                        onClick={() => softDeleteClient(c)}
+                      >
+                        删除
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -912,9 +990,18 @@ function ClientsTab({
                   </td>
                   <td style={{ padding: '10px 12px', color: 'var(--s700)' }}>{formatDeletedAt(c.deletedAt)}</td>
                   <td style={{ padding: '10px 12px' }}>
-                    <button className="btn btn-sm" style={{ background: '#B42318', color: '#fff' }} onClick={() => hardDeleteClient(c)}>
-                      彻底删除
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="btn btn-sm"
+                        style={{ background: 'var(--p)', color: '#fff' }}
+                        onClick={() => restoreClient(c)}
+                      >
+                        恢复
+                      </button>
+                      <button className="btn btn-sm" style={{ background: '#B42318', color: '#fff' }} onClick={() => hardDeleteClient(c)}>
+                        彻底删除
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1201,6 +1288,21 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
   const [coaches, setCoaches] = useState<Coach[]>(() => getCoachesFromCache());
   const [coachesLoading, setCoachesLoading] = useState(true);
 
+  const refreshClientsFromServer = async () => {
+    try {
+      const res = await fetch('/api/clients');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const serverClients = (await res.json()) as Client[];
+      if (Array.isArray(serverClients)) {
+        setClients(serverClients);
+        persistClientsToStores(serverClients);
+      }
+    } catch (err) {
+      console.warn('[AdminPortal] Failed to fetch clients from server, using local merged data:', err);
+      setClients(loadMergedClientsFromStores());
+    }
+  };
+
   // 页面加载时从服务器拉取教练数据
   useEffect(() => {
     loadCoaches().then(fetchedCoaches => {
@@ -1225,9 +1327,20 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
   }, [clients]);
 
   useEffect(() => {
+    if (display === 'block') {
+      void refreshClientsFromServer();
+    }
+  }, [display]);
+
+  useEffect(() => {
     const syncFromStorage = () => setClients(loadMergedClientsFromStores());
+    const syncFromInTabEvent = () => setClients(loadMergedClientsFromStores());
     window.addEventListener('storage', syncFromStorage);
-    return () => window.removeEventListener('storage', syncFromStorage);
+    window.addEventListener('fika:clients-updated', syncFromInTabEvent);
+    return () => {
+      window.removeEventListener('storage', syncFromStorage);
+      window.removeEventListener('fika:clients-updated', syncFromInTabEvent);
+    };
   }, []);
 
   const navItems: { key: AdminTab; label: string; icon: ReactNode }[] = [
