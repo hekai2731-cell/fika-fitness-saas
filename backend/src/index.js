@@ -57,6 +57,65 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'fika-backend', ts: Date.now() });
 });
 
+// 数据清理API - 处理重复数据
+app.post('/api/admin/cleanup-duplicates', async (req, res) => {
+  try {
+    console.log('[backend] Starting duplicate data cleanup...');
+    
+    // 查找所有重复的id
+    const duplicateIds = await Client.aggregate([
+      { $group: { _id: '$id', count: { $sum: 1 }, docs: { $push: '$_id' } } },
+      { $match: { count: { $gt: 1 } } }
+    ]);
+    
+    // 查找所有重复的roadCode
+    const duplicateRoadCodes = await Client.aggregate([
+      { $group: { _id: '$roadCode', count: { $sum: 1 }, docs: { $push: '$_id' } } },
+      { $match: { count: { $gt: 1 } } }
+    ]);
+    
+    let cleanedCount = 0;
+    
+    // 清理重复的id记录，保留最新的
+    for (const duplicate of duplicateIds) {
+      const docs = await Client.find({ id: duplicate._id }).sort({ updatedAt: -1 });
+      const toKeep = docs[0];
+      const toDelete = docs.slice(1);
+      
+      if (toDelete.length > 0) {
+        await Client.deleteMany({ _id: { $in: toDelete.map(d => d._id) } });
+        cleanedCount += toDelete.length;
+        console.log(`[backend] Cleaned ${toDelete.length} duplicate records for id: ${duplicate._id}`);
+      }
+    }
+    
+    // 清理重复的roadCode记录，保留最新的
+    for (const duplicate of duplicateRoadCodes) {
+      const docs = await Client.find({ roadCode: duplicate._id }).sort({ updatedAt: -1 });
+      const toKeep = docs[0];
+      const toDelete = docs.slice(1);
+      
+      if (toDelete.length > 0) {
+        await Client.deleteMany({ _id: { $in: toDelete.map(d => d._id) } });
+        cleanedCount += toDelete.length;
+        console.log(`[backend] Cleaned ${toDelete.length} duplicate records for roadCode: ${duplicate._id}`);
+      }
+    }
+    
+    console.log(`[backend] Cleanup completed. Removed ${cleanedCount} duplicate records.`);
+    res.json({ 
+      success: true, 
+      cleanedRecords: cleanedCount,
+      duplicateIdsFound: duplicateIds.length,
+      duplicateRoadCodesFound: duplicateRoadCodes.length
+    });
+    
+  } catch (err) {
+    console.error('[backend] Cleanup failed:', err);
+    res.status(500).json({ error: 'Cleanup failed', details: String(err) });
+  }
+});
+
 // Client data sync APIs - 强制使用MongoDB
 app.get('/api/clients', async (req, res) => {
   try {
@@ -130,17 +189,61 @@ app.put('/api/clients/:id', async (req, res) => {
     const { id } = req.params;
     const clientData = req.body;
     
+    // 使用更安全的查询条件，同时检查id和roadCode
     const client = await Client.findOneAndUpdate(
-      { id: id },
-      { ...clientData, updatedAt: new Date() },
-      { new: true, upsert: true }
+      { 
+        id: id,
+        // 确保不会与其他记录的roadCode冲突
+        $or: [
+          { roadCode: clientData.roadCode },
+          { roadCode: { $exists: false } }
+        ]
+      },
+      { 
+        ...clientData, 
+        updatedAt: new Date(),
+        // 确保roadCode不会冲突
+        $setOnInsert: { 
+          roadCode: clientData.roadCode,
+          createdAt: new Date()
+        }
+      },
+      { 
+        new: true, 
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true
+      }
     );
     
     console.log('[backend] Client updated in MongoDB:', id);
     res.json({ success: true, id: client.id });
   } catch (err) {
     console.error('[backend] MongoDB update failed:', err);
-    res.status(500).json({ error: 'MongoDB connection failed', details: String(err) });
+    
+    // 处理重复键错误
+    if (err.code === 11000) {
+      const duplicateField = Object.keys(err.keyPattern || {})[0];
+      console.error('[backend] Duplicate key error on field:', duplicateField, 'value:', err.keyValue);
+      
+      // 尝试替代方案：先删除冲突记录，再插入新记录
+      try {
+        await Client.deleteMany({ id: id });
+        const newClient = new Client(clientData);
+        await newClient.save();
+        console.log('[backend] Client recreated after conflict resolution:', id);
+        return res.json({ success: true, id: newClient.id, action: 'recreated' });
+      } catch (retryErr) {
+        console.error('[backend] Conflict resolution failed:', retryErr);
+        return res.status(409).json({ 
+          error: `Duplicate ${duplicateField}`, 
+          details: `The ${duplicateField} already exists and could not be resolved`,
+          code: 'DUPLICATE_KEY'
+        });
+      }
+    }
+    
+    res.status(500).json({ error: 'MongoDB operation failed', details: String(err) });
   }
 });
 
