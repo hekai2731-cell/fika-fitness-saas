@@ -142,6 +142,19 @@ function persistClientsToStores(clients: Client[]) {
   localStorage.setItem(COACH_CLIENTS_KEY, JSON.stringify(clients));
 }
 
+async function syncClientToServer(client: Client) {
+  try {
+    const res = await fetch(`/api/clients/${encodeURIComponent(client.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(client),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (err) {
+    console.error('[AdminPortal] Failed to sync client to server:', err);
+  }
+}
+
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function sanitizeCodeInput(raw: string): string {
@@ -411,6 +424,10 @@ function CodesTab({
     const updated = clients.map((c) => (c.id === clientId ? { ...c, roadCode: nextCode } : c));
     setClientCodeDrafts((prev) => ({ ...prev, [clientId]: nextCode }));
     onClientsChange(updated);
+    const changedClient = updated.find((c) => c.id === clientId);
+    if (changedClient) {
+      void syncClientToServer(changedClient);
+    }
   };
 
   const saveCoachCode = (oldCode: string) => {
@@ -436,6 +453,11 @@ function CodesTab({
     });
     onCoachesChange(updatedCoaches);
     onClientsChange(updatedClients);
+    updatedClients
+      .filter((c) => String(c.coachCode || '') === String(nextCode))
+      .forEach((client) => {
+        void syncClientToServer(client);
+      });
   };
 
   return (
@@ -1266,6 +1288,21 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
   const [coaches, setCoaches] = useState<Coach[]>(() => getCoachesFromCache());
   const [coachesLoading, setCoachesLoading] = useState(true);
 
+  const refreshClientsFromServer = async () => {
+    try {
+      const res = await fetch('/api/clients');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const serverClients = (await res.json()) as Client[];
+      if (Array.isArray(serverClients)) {
+        setClients(serverClients);
+        persistClientsToStores(serverClients);
+      }
+    } catch (err) {
+      console.warn('[AdminPortal] Failed to fetch clients from server, using local merged data:', err);
+      setClients(loadMergedClientsFromStores());
+    }
+  };
+
   // 页面加载时从服务器拉取教练数据
   useEffect(() => {
     loadCoaches().then(fetchedCoaches => {
@@ -1290,9 +1327,20 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
   }, [clients]);
 
   useEffect(() => {
+    if (display === 'block') {
+      void refreshClientsFromServer();
+    }
+  }, [display]);
+
+  useEffect(() => {
     const syncFromStorage = () => setClients(loadMergedClientsFromStores());
+    const syncFromInTabEvent = () => setClients(loadMergedClientsFromStores());
     window.addEventListener('storage', syncFromStorage);
-    return () => window.removeEventListener('storage', syncFromStorage);
+    window.addEventListener('fika:clients-updated', syncFromInTabEvent);
+    return () => {
+      window.removeEventListener('storage', syncFromStorage);
+      window.removeEventListener('fika:clients-updated', syncFromInTabEvent);
+    };
   }, []);
 
   const navItems: { key: AdminTab; label: string; icon: ReactNode }[] = [

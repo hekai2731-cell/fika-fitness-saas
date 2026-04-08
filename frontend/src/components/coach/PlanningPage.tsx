@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { CardDescription, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import type { Block, Client, TrainingDay, TrainingWeek } from '@/lib/db';
-import { getClient, loadClients, saveClients } from '@/lib/store';
+import { getClient, loadClients, saveClient, saveClients } from '@/lib/store';
 
 // ─── 工具 ──────────────────────────────────────────────────────────────────────
 function cn(...parts: Array<string | false | null | undefined>) {
@@ -743,6 +743,7 @@ export function PlanningPage({
     else all.push(merged);
     saveClients(all);
     setClient(merged);
+    void saveClient(merged);
   };
 
   const publishPlanToStudent = () => {
@@ -1240,19 +1241,13 @@ export function PlanningPage({
         ),
       };
       persistClient(next);
-    } catch (e: any) {
-      // 如果是数据库保存错误，仍然显示AI生成的计划
-      const errorMessage = e?.message || String(e);
-      console.error('[AI] Error saving plan to database:', errorMessage);
-      
-      // 尝试从错误中提取AI生成的数据
-      if (errorMessage.includes('AI generation failed')) {
-        setError('AI生成失败: ' + errorMessage);
-      } else {
-        // 数据库保存失败，但AI生成成功
-        setError('计划已生成，但保存到数据库失败。计划已显示在界面上，请手动保存。');
-        // 不阻止计划显示，让用户看到AI生成的内容
+      if ((json as any)?.saved === false) {
+        console.warn('[AI] Plan generated but backend AI-plan persistence failed; client data synced via /api/clients.');
       }
+    } catch (e: any) {
+      const errorMessage = e?.message || String(e);
+      console.error('[AI] Day plan generation failed:', errorMessage);
+      setError(errorMessage || 'AI 生成失败，请稍后重试');
     } finally {
       setLoadingDay(false);
     }

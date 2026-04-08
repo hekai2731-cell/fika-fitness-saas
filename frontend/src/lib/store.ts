@@ -18,6 +18,7 @@ function lsReadClients(): Client[] {
 
 function lsWriteClients(clients: Client[]) {
   localStorage.setItem(LS_KEY_CLIENTS, JSON.stringify(clients));
+  window.dispatchEvent(new Event('fika:clients-updated'));
 }
 
 // 同步版本 - 直接读 localStorage，所有现有代码都用这个

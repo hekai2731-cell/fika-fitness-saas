@@ -16,7 +16,7 @@ import { PlanningPage } from './components/coach/PlanningPage';
 import { FinancePage } from './components/coach/FinancePage';
 import { HeartRatePage } from './components/coach/HeartRatePage';
 import { DietPage } from './components/coach/DietPage';
-import { loadClients, loadClientsAsync, loadCoaches, saveClients } from '@/lib/store';
+import { loadClients, loadClientsAsync, loadCoaches, saveClient, saveClients } from '@/lib/store';
 import { initSync } from '@/lib/sync';
 // ↓ 新增两个组件 import
 import { StudentPortal } from './components/student/StudentPortal';
@@ -374,6 +374,9 @@ function CoachClientSelectPage({
     };
     (newClient as any).coachCode = coachCode || '';
     syncClientStores([...all, newClient]);
+    void saveClient(newClient).catch((err) => {
+      console.error('[app] Failed to sync new coach client to server:', err);
+    });
     refreshClients();
     setCreateOpen(false);
     setNewName('');
