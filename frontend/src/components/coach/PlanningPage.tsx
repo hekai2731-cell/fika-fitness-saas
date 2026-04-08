@@ -1156,6 +1156,63 @@ export function PlanningPage({
     setSelectedDayId(days[0].id);
   };
 
+  // ── 数据提取辅助函数 ──────────────────────────────────────────
+  /**
+   * 提取最近5次训练数据：格式 { date, rpe }
+   */
+  const extractRecentSessions = (sessions: any[]) => {
+    return (sessions || []).slice(-5).map(s => ({
+      date: s.date ? new Date(s.date).toLocaleDateString('zh-CN') : '未知',
+      rpe: s.rpe || 0,
+    }));
+  };
+
+  /**
+   * 提取上一次同名训练的动作列表
+   */
+  const extractLastSessionExercises = (dayName: string) => {
+    if (!client || !selectedBlock) return [];
+
+    const blocks = client.blocks || [];
+    const currentBlockIdx = blocks.findIndex(b => b.id === selectedBlock.id);
+
+    for (let bi = currentBlockIdx; bi >= 0; bi--) {
+      const weeks = (blocks[bi].training_weeks || []);
+      for (let wi = weeks.length - 1; wi >= 0; wi--) {
+        if (bi === currentBlockIdx && selectedWeek && wi >= (selectedWeek.week_num || 0)) break;
+        const dayMatch = (weeks[wi].days || []).find(d => d.day === dayName);
+        if (dayMatch?.modules?.length) {
+          const exList: any[] = [];
+          dayMatch.modules.forEach((mod: any) => {
+            (mod.exercises || []).forEach((ex: any) => {
+              exList.push({
+                name: ex.name,
+                sets: ex.sets,
+                reps: ex.reps,
+                rest_seconds: ex.rest_seconds,
+                notes: ex.notes || '',
+              });
+            });
+          });
+          return exList;
+        }
+      }
+    }
+    return [];
+  };
+
+  /**
+   * 状态包装函数：setGeneratedPreview（与 aiPreviewMode/aiPreviewData 兼容）
+   */
+  const setGeneratedPreview = (preview: { type: 'day' | 'week' | 'full' | null; data: any; loading?: boolean; error?: string | null }) => {
+    if (preview.type) {
+      setAiPreviewMode(preview.type);
+    } else {
+      setAiPreviewMode(null);
+    }
+    setAiPreviewData(preview.data);
+  };
+
   // ── 新建训练日 ────────────────────────────────────────────────
   const addDay = (dayLabel: string) => {
     if (!client || !selectedBlock || !selectedWeek) return;
