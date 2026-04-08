@@ -1420,6 +1420,7 @@ export function PlanningPage({
       ),
     };
     persistClient(next);
+    setGeneratedPreview({ type: null, data: null });
   };
 
   // ── AI 生成周计划 ─────────────────────────────────────────────
