@@ -141,16 +141,19 @@ app.post('/api/clients', async (req, res) => {
   try {
     const clientData = req.body;
     
-    // 使用 findOneAndUpdate 配合 upsert: true
+    // 移除roadCode字段避免冲突，然后单独处理
+    const { roadCode, ...clientDataWithoutRoadCode } = clientData;
+    
     const client = await Client.findOneAndUpdate(
       { 
         $or: [
           { id: clientData.id }, 
-          { roadCode: clientData.roadCode }
+          { roadCode: roadCode }
         ]
       },
       { 
-        ...clientData, 
+        ...clientDataWithoutRoadCode,
+        roadCode: roadCode, // 单独设置roadCode避免冲突
         updatedAt: new Date(),
         $setOnInsert: { 
           createdAt: new Date(),
@@ -189,22 +192,16 @@ app.put('/api/clients/:id', async (req, res) => {
     const { id } = req.params;
     const clientData = req.body;
     
-    // 使用更安全的查询条件，同时检查id和roadCode
+    // 移除roadCode字段避免冲突，然后单独处理
+    const { roadCode, ...clientDataWithoutRoadCode } = clientData;
+    
     const client = await Client.findOneAndUpdate(
+      { id: id },
       { 
-        id: id,
-        // 确保不会与其他记录的roadCode冲突
-        $or: [
-          { roadCode: clientData.roadCode },
-          { roadCode: { $exists: false } }
-        ]
-      },
-      { 
-        ...clientData, 
+        ...clientDataWithoutRoadCode,
+        roadCode: roadCode, // 单独设置roadCode避免冲突
         updatedAt: new Date(),
-        // 确保roadCode不会冲突
         $setOnInsert: { 
-          roadCode: clientData.roadCode,
           createdAt: new Date()
         }
       },
