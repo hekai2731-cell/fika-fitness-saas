@@ -11,19 +11,17 @@ export async function connectMongo() {
 
   const mongoUri = process.env.MONGODB_URI || DEFAULT_MONGO_URI;
 
-  // 优化的连接配置
+  // 优化的连接配置（符合最新Mongoose规范）
   await mongoose.connect(mongoUri, {
     autoIndex: true,
     serverSelectionTimeoutMS: 10000, // 增加超时时间
     socketTimeoutMS: 45000, // socket超时
-    bufferMaxEntries: 0, // 禁用缓冲
-    bufferCommands: false, // 禁用命令缓冲
     maxPoolSize: 10, // 连接池大小
     minPoolSize: 2, // 最小连接数
     maxIdleTimeMS: 30000, // 最大空闲时间
     heartbeatFrequencyMS: 10000, // 心跳频率
     retryWrites: true, // 重试写入
-    w: 'majority', // 写入确认
+    writeConcern: { w: 'majority' }, // 写入确认（新格式）
   });
 
   // 连接事件监听
