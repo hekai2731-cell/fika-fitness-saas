@@ -1245,35 +1245,11 @@ export function PlanningPage({
     setLoadingDay(true);
     setError(null);
     try {
-      // 提取最近5次 RPE 数据
-      const recentSessions = (client.sessions || []).slice(-5).map(s => ({
-        date: s.date ? new Date(s.date).toLocaleDateString('zh-CN') : '未知',
-        rpe: s.rpe || 0,
-      }));
+      // 提取最近5次数据
+      const recentSessions = extractRecentSessions(client.sessions);
 
-      // 找上一次同类训练
-      const lastSessionExercises = (() => {
-        const dayName = selectedDay.day;
-        const blocks = client.blocks || [];
-        const currentBlockIdx = blocks.findIndex(b => b.id === selectedBlock.id);
-        for (let bi = currentBlockIdx; bi >= 0; bi--) {
-          const weeks = (blocks[bi].training_weeks || []);
-          for (let wi = weeks.length - 1; wi >= 0; wi--) {
-            if (bi === currentBlockIdx && wi >= (selectedWeek.week_num || 0)) break;
-            const dayMatch = (weeks[wi].days || []).find(d => d.day === dayName);
-            if (dayMatch?.modules?.length) {
-              const exList: any[] = [];
-              dayMatch.modules.forEach((mod: any) => {
-                (mod.exercises || []).forEach((ex: any) => {
-                  exList.push({ name: ex.name, sets: ex.sets, reps: ex.reps, rest_seconds: ex.rest_seconds, notes: ex.notes || '' });
-                });
-              });
-              return exList;
-            }
-          }
-        }
-        return [];
-      })();
+      // 提取上一次同名训练的动作列表
+      const lastSessionExercises = extractLastSessionExercises(selectedDay.day);
 
       const json = await fetchJsonOrThrow(apiUrl('/api/session-plan'), {
         method: 'POST',
@@ -1295,7 +1271,7 @@ export function PlanningPage({
           blockTitle: selectedBlock.title,
           weekLabel: `Week ${selectedWeek.week_num}`,
           blockIndex: Math.max(0, (client.blocks || []).findIndex(b => b.id === selectedBlock.id)),
-          // 新增：最近训练数据和上一次该日的动作
+          // 传给后端的新数据
           recentSessions,
           lastSessionExercises,
           lastSessionDate: lastSessionExercises.length > 0 ? '上一次该日训练' : undefined,
@@ -1303,19 +1279,29 @@ export function PlanningPage({
         }),
       });
 
-      // 显示预览而非直接保存
-      setAiPreviewData(json);
-      setAiPreviewMode('day');
+      // 显示预览弹窗，不直接保存
+      setGeneratedPreview({
+        type: 'day',
+        data: json,
+        loading: false,
+        error: null,
+      });
     } catch (e: any) {
       const errorMessage = e?.message || String(e);
       console.error('[AI] Error generating day plan:', errorMessage);
+      setGeneratedPreview({
+        type: 'day',
+        data: null,
+        loading: false,
+        error: errorMessage,
+      });
       setError('生成失败：' + errorMessage);
     } finally {
       setLoadingDay(false);
     }
   };
 
-  // 确认保存预览的课程计划
+  // 确认应用日计划预览数据
   const confirmSaveDayPlanFromPreview = () => {
     if (!aiPreviewData || !client || !selectedDay || !selectedWeek || !selectedBlock) return;
 
@@ -1353,10 +1339,31 @@ export function PlanningPage({
         ),
       };
       persistClient(next);
-      setAiPreviewMode(null);
-      setAiPreviewData(null);
+      setGeneratedPreview({ type: null, data: null });
     } catch (e: any) {
       console.error('[保存] 保存失败:', e);
+      setError('保存失败：' + (e?.message || String(e)));
+    }
+  };
+
+  // 确认应用完整规划预览
+  const confirmSaveFullPlanFromPreview = () => {
+    if (!aiPreviewData?.blocks || !client) return;
+
+    try {
+      const next: Client = { ...client, blocks: aiPreviewData.blocks };
+      persistClient(next);
+
+      if (aiPreviewData.blocks.length > 0) {
+        setSelectedBlockId(aiPreviewData.blocks[0].id);
+        const wk = aiPreviewData.blocks[0].training_weeks?.[0];
+        setSelectedWeekId(wk?.id || null);
+        setSelectedDayId(wk?.days?.[0]?.id || null);
+      }
+
+      setGeneratedPreview({ type: null, data: null });
+    } catch (e: any) {
+      console.error('[保存] 完整规划保存失败:', e);
       setError('保存失败：' + (e?.message || String(e)));
     }
   };
@@ -1568,7 +1575,17 @@ export function PlanningPage({
       const weeksTotal = (client as any).weeks_total ?? (client as any).weeksTotal ?? (client as any).weeks ?? 12;
       const activeTier = tierOverride || client.tier || 'standard';
 
+      // 提取客户历史和数据
+      const recentSessions = extractRecentSessions(client.sessions);
+      const totalSessions = (client.sessions || []).length;
+      const avgRpe = totalSessions > 0
+        ? Math.round((client.sessions || []).reduce((sum: number, s: any) => sum + (s.rpe || 0), 0) / totalSessions)
+        : 0;
+      const sessionTypes = new Set((client.sessions || []).map(s => s.type || '通用').filter(Boolean));
+
       let blocks: Block[] | null = null;
+      let fullPlanData: any = null;
+
       try {
         const full = await fetchJsonOrThrow(apiUrl('/api/full-plan'), {
           method: 'POST',
@@ -1588,8 +1605,19 @@ export function PlanningPage({
             blockGoal: (client.blocks || [])[0] ? ((client.blocks || [])[0] as any)?.goal : undefined,
             coachRules: (client as any).coachRules,
             weeksTotal,
+            // 新增数据
+            recentSessions,
+            clientHistory: {
+              totalSessions,
+              avgRpe,
+              sessionTypes: Array.from(sessionTypes),
+            },
+            clientGoal: client.goal,
+            clientInjury: client.injury,
           }),
         });
+
+        fullPlanData = full;
 
         const weeks: TrainingWeek[] = (Array.isArray((full as any)?.weeks) ? (full as any).weeks : []).map((w: any, wi: number) => ({
           id: genId('week'),
@@ -1628,16 +1656,26 @@ export function PlanningPage({
         blocks = buildBlocksByTier(training_weeks, String(activeTier));
       }
 
-      const next: Client = { ...client, blocks };
-      persistClient(next);
-      if (blocks.length > 0) {
-        setSelectedBlockId(blocks[0].id);
-        const wk = blocks[0].training_weeks?.[0];
-        setSelectedWeekId(wk?.id || null);
-        setSelectedDayId(wk?.days?.[0]?.id || null);
-      }
+      // 显示预览弹窗而非直接保存
+      setGeneratedPreview({
+        type: 'full',
+        data: {
+          blocks,
+          fullPlanData,
+        },
+        loading: false,
+        error: null,
+      });
     } catch (e: any) {
-      setError('完整规划生成失败：' + (e?.message || String(e)));
+      const errorMessage = e?.message || String(e);
+      console.error('[AI] Full plan generation failed:', errorMessage);
+      setGeneratedPreview({
+        type: 'full',
+        data: null,
+        loading: false,
+        error: errorMessage,
+      });
+      setError('完整规划生成失败：' + errorMessage);
     } finally {
       setLoadingFull(false);
     }
