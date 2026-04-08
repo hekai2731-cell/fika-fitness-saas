@@ -57,6 +57,47 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'fika-backend', ts: Date.now() });
 });
 
+// 调试API - 检查数据库中的实际数据
+app.get('/api/admin/debug-data', async (req, res) => {
+  try {
+    console.log('[backend] Debugging database data...');
+    
+    // 1. 统计所有记录（包括软删除的）
+    const allRecords = await Client.find({}).lean();
+    console.log('[backend] Total records in DB:', allRecords.length);
+    
+    // 2. 统计未删除的记录
+    const activeRecords = await Client.find({ deletedAt: { $exists: false } }).lean();
+    console.log('[backend] Active records (no deletedAt):', activeRecords.length);
+    
+    // 3. 统计已删除的记录
+    const deletedRecords = await Client.find({ deletedAt: { $exists: true } }).lean();
+    console.log('[backend] Deleted records (has deletedAt):', deletedRecords.length);
+    
+    // 4. 显示前几条记录的详细信息
+    const sampleRecords = allRecords.slice(0, 5).map(record => ({
+      id: record.id,
+      roadCode: record.roadCode,
+      name: record.name,
+      coachCode: record.coachCode,
+      deletedAt: record.deletedAt,
+      updatedAt: record.updatedAt
+    }));
+    
+    res.json({
+      totalRecords: allRecords.length,
+      activeRecords: activeRecords.length,
+      deletedRecords: deletedRecords.length,
+      sampleRecords: sampleRecords,
+      message: 'Database debug information'
+    });
+    
+  } catch (err) {
+    console.error('[backend] Debug failed:', err);
+    res.status(500).json({ error: 'Debug failed', details: String(err) });
+  }
+});
+
 // 强力数据清理API - 彻底解决重复数据问题
 app.post('/api/admin/cleanup-duplicates', async (req, res) => {
   try {
