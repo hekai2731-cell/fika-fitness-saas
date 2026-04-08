@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, type ReactNode } from 'react';
+import { loadCoaches, saveCoaches, getCoachesFromCache, type Coach as StoreCoach } from '@/lib/store';
 
 // ── 类型 ─────────────────────────────────────────────────────
 interface Session {
@@ -1197,17 +1198,27 @@ interface AdminPortalProps {
 export function AdminPortal({ display, onLogout }: AdminPortalProps) {
   const [tab, setTab] = useState<AdminTab>('overview');
   const [clients, setClients] = useState<Client[]>(() => loadMergedClientsFromStores());
-  const [coaches, setCoaches] = useState<Coach[]>(() =>
-    lsGet<Coach[]>('coaches', [
-      { code: 'COACH001', name: '龙教练', specialties: ['功能性力量', '减脂塑形'] },
-      { code: 'COACH002', name: '林教练', specialties: ['运动康复', '体能提升'] },
-    ]),
-  );
+  const [coaches, setCoaches] = useState<Coach[]>(() => getCoachesFromCache());
+  const [coachesLoading, setCoachesLoading] = useState(true);
 
-  // 同步教练列表
+  // 页面加载时从服务器拉取教练数据
   useEffect(() => {
-    lsSet('coaches', coaches);
-  }, [coaches]);
+    loadCoaches().then(fetchedCoaches => {
+      setCoaches(fetchedCoaches);
+      setCoachesLoading(false);
+    }).catch(err => {
+      console.error('[AdminPortal] Failed to load coaches:', err);
+      setCoaches(getCoachesFromCache());
+      setCoachesLoading(false);
+    });
+  }, []);
+
+  // 同步教练列表到服务器
+  useEffect(() => {
+    if (!coachesLoading) {
+      saveCoaches(coaches).catch(err => console.error('[AdminPortal] Failed to save coaches:', err));
+    }
+  }, [coaches, coachesLoading]);
 
   useEffect(() => {
     persistClientsToStores(clients);

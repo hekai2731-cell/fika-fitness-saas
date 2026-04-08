@@ -16,7 +16,7 @@ import { PlanningPage } from './components/coach/PlanningPage';
 import { FinancePage } from './components/coach/FinancePage';
 import { HeartRatePage } from './components/coach/HeartRatePage';
 import { DietPage } from './components/coach/DietPage';
-import { loadClients, saveClients, loadClientsAsync, syncPending } from '@/lib/store';
+import { loadClients, loadCoaches } from '@/lib/store';
 import { initSync } from '@/lib/sync';
 // ↓ 新增两个组件 import
 import { StudentPortal } from './components/student/StudentPortal';
@@ -959,6 +959,7 @@ function App() {
   const [page, setPage] = useState<Page>('landing');
   const [currentStudent, setCurrentStudent] = useState<any>(null);
   const [currentCoachCode, setCurrentCoachCode] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   const persistSession = (session: SessionData, remember: boolean) => {
     if (remember) {
@@ -983,82 +984,99 @@ function App() {
 
   // 初始化数据 + 自动登录恢复
   useEffect(() => {
-    initDemoData();
-    try {
-      const saved = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
-      if (saved) {
-        const sess = JSON.parse(saved) as SessionData;
-        if (sess.role === 'student' && (sess.clientId || sess.roadCode)) {
-          const clients = lsGet<any[]>('clients', []);
-          let client = clients.find((c) => c.id === (sess as any).clientId);
-          if (!client && (sess as any).roadCode) {
-            client = clients.find((c) => String(c.roadCode || '').toUpperCase() === String((sess as any).roadCode).toUpperCase());
+    (async () => {
+      try {
+        setIsInitializing(true);
+
+        // 从服务器拉取客户和教练数据
+        await Promise.all([
+          loadClients().catch(err => {
+            console.warn('[app] Failed to load clients:', err);
+          }),
+          loadCoaches().catch(err => {
+            console.warn('[app] Failed to load coaches:', err);
+          }),
+        ]);
+
+        console.log('[app] Initialized clients and coaches from server');
+      } catch (error) {
+        console.warn('[app] Error during initialization:', error);
+      } finally {
+        setIsInitializing(false);
+      }
+
+      // 自动登录恢复
+      try {
+        const saved = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+        if (saved) {
+          const sess = JSON.parse(saved) as SessionData;
+          if (sess.role === 'student' && (sess.clientId || sess.roadCode)) {
+            const clients = lsGet<any[]>('clients', []);
+            let client = clients.find((c) => c.id === (sess as any).clientId);
+            if (!client && (sess as any).roadCode) {
+              client = clients.find((c) => String(c.roadCode || '').toUpperCase() === String((sess as any).roadCode).toUpperCase());
+            }
+            if (!client && (sess as any).roadCode) {
+              const code = String((sess as any).roadCode).toUpperCase();
+              client = {
+                id: 'DEMO_' + code,
+                roadCode: code,
+                name: code,
+                gender: 'male',
+                age: 25,
+                height: 170,
+                weight: 65,
+                tier: 'pro',
+                goal: '功能性力量',
+                weeks: 15,
+                injury: '',
+                coachCode: 'COACH001',
+                blocks: [],
+                sessions: [],
+                weeklyData: [],
+                dietPlans: [],
+              };
+            }
+            if (client) {
+              setCurrentStudent(client);
+              setPage('student');
+            }
+          } else if (sess.role === 'coach' && sess.coachCode) {
+            setCurrentCoachCode(sess.coachCode);
+            setPage('coach');
+          } else if (sess.role === 'admin') {
+            setPage('admin');
           }
-          if (!client && (sess as any).roadCode) {
-            const code = String((sess as any).roadCode).toUpperCase();
-            client = {
-              id: 'DEMO_' + code,
-              roadCode: code,
-              name: code,
-              gender: 'male',
-              age: 25,
-              height: 170,
-              weight: 65,
-              tier: 'pro',
-              goal: '功能性力量',
-              weeks: 15,
-              injury: '',
-              coachCode: 'COACH001',
-              blocks: [],
-              sessions: [],
-              weeklyData: [],
-              dietPlans: [],
-            };
-          }
-          if (client) {
-            setCurrentStudent(client);
-            setPage('student');
-          }
-        } else if (sess.role === 'coach' && sess.coachCode) {
-          setCurrentCoachCode(sess.coachCode);
-          setPage('coach');
-        } else if (sess.role === 'admin') {
-          setPage('admin');
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
 
-    // 初始化数据同步服务
-    try {
-      // 生产环境使用相对路径，开发环境使用环境变量或localhost
-      const isProduction = import.meta.env.PROD;
-      let apiBase;
-      
-      if (isProduction) {
-        apiBase = ''; // 生产环境使用相对路径，通过反向代理处理
-      } else {
-        apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+      // 初始化数据同步服务
+      try {
+        const isProduction = import.meta.env.PROD;
+        let apiBase;
+
+        if (isProduction) {
+          apiBase = '';
+        } else {
+          apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+        }
+
+        const tempUserId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        initSync({
+          apiBase,
+          tempUserId,
+        });
+
+        console.log('[app] Data sync service initialized with API base:', apiBase || '(relative paths)');
+      } catch (error) {
+        console.warn('[app] Failed to initialize sync service:', error);
       }
-      
-      const tempUserId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      initSync({
-        apiBase,
-        tempUserId,
-      });
+    })();
 
-      console.log('[app] Data sync service initialized with API base:', apiBase || '(relative paths)');
-    } catch (error) {
-      console.warn('[app] Failed to initialize sync service:', error);
-    }
-
-    // MongoDB 云同步初始化
-    loadClientsAsync();
-    const handleOnline = () => syncPending();
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
+    initDemoData();
   }, []);
 
   // 学员登录 - 强制从服务器拉取
@@ -1156,6 +1174,24 @@ function App() {
     }),
     [page],
   );
+
+  // 等待初始化完成
+  if (isInitializing) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f5f5f5' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '18px', marginBottom: '20px', color: '#666' }}>正在加载数据...</div>
+          <div style={{ width: '40px', height: '40px', border: '4px solid #ddd', borderTop: '4px solid #4CAF50', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto' }} />
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
