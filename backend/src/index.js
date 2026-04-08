@@ -57,61 +57,70 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'fika-backend', ts: Date.now() });
 });
 
-// 数据清理API - 处理重复数据
+// 强力数据清理API - 彻底解决重复数据问题
 app.post('/api/admin/cleanup-duplicates', async (req, res) => {
   try {
-    console.log('[backend] Starting duplicate data cleanup...');
+    console.log('[backend] Starting aggressive duplicate data cleanup...');
     
-    // 查找所有重复的id
+    let totalCleaned = 0;
+    
+    // 方法1: 基于id清理重复数据
     const duplicateIds = await Client.aggregate([
-      { $group: { _id: '$id', count: { $sum: 1 }, docs: { $push: '$_id' } } },
+      { $group: { _id: '$id', count: { $sum: 1 }, docs: { $push: { _id: '$_id', updatedAt: '$updatedAt' } } } },
       { $match: { count: { $gt: 1 } } }
     ]);
     
-    // 查找所有重复的roadCode
-    const duplicateRoadCodes = await Client.aggregate([
-      { $group: { _id: '$roadCode', count: { $sum: 1 }, docs: { $push: '$_id' } } },
-      { $match: { count: { $gt: 1 } } }
-    ]);
-    
-    let cleanedCount = 0;
-    
-    // 清理重复的id记录，保留最新的
     for (const duplicate of duplicateIds) {
-      const docs = await Client.find({ id: duplicate._id }).sort({ updatedAt: -1 });
-      const toKeep = docs[0];
-      const toDelete = docs.slice(1);
+      // 按更新时间排序，保留最新的
+      duplicate.docs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      const toKeep = duplicate.docs[0];
+      const toDelete = duplicate.docs.slice(1);
       
       if (toDelete.length > 0) {
         await Client.deleteMany({ _id: { $in: toDelete.map(d => d._id) } });
-        cleanedCount += toDelete.length;
+        totalCleaned += toDelete.length;
         console.log(`[backend] Cleaned ${toDelete.length} duplicate records for id: ${duplicate._id}`);
       }
     }
     
-    // 清理重复的roadCode记录，保留最新的
+    // 方法2: 基于roadCode清理重复数据
+    const duplicateRoadCodes = await Client.aggregate([
+      { $group: { _id: '$roadCode', count: { $sum: 1 }, docs: { $push: { _id: '$_id', updatedAt: '$updatedAt' } } } },
+      { $match: { count: { $gt: 1 } } }
+    ]);
+    
     for (const duplicate of duplicateRoadCodes) {
-      const docs = await Client.find({ roadCode: duplicate._id }).sort({ updatedAt: -1 });
-      const toKeep = docs[0];
-      const toDelete = docs.slice(1);
+      duplicate.docs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      const toKeep = duplicate.docs[0];
+      const toDelete = duplicate.docs.slice(1);
       
       if (toDelete.length > 0) {
         await Client.deleteMany({ _id: { $in: toDelete.map(d => d._id) } });
-        cleanedCount += toDelete.length;
+        totalCleaned += toDelete.length;
         console.log(`[backend] Cleaned ${toDelete.length} duplicate records for roadCode: ${duplicate._id}`);
       }
     }
     
-    console.log(`[backend] Cleanup completed. Removed ${cleanedCount} duplicate records.`);
+    // 方法3: 检查并修复MongoDB索引一致性
+    try {
+      await Client.collection.createIndex({ id: 1 }, { unique: true, background: true });
+      await Client.collection.createIndex({ roadCode: 1 }, { unique: true, background: true });
+      console.log('[backend] Index consistency verified');
+    } catch (indexErr) {
+      console.warn('[backend] Index verification warning:', indexErr.message);
+    }
+    
+    console.log(`[backend] Aggressive cleanup completed. Removed ${totalCleaned} duplicate records.`);
     res.json({ 
       success: true, 
-      cleanedRecords: cleanedCount,
+      cleanedRecords: totalCleaned,
       duplicateIdsFound: duplicateIds.length,
-      duplicateRoadCodesFound: duplicateRoadCodes.length
+      duplicateRoadCodesFound: duplicateRoadCodes.length,
+      message: 'Aggressive cleanup completed. All duplicate records removed.'
     });
     
   } catch (err) {
-    console.error('[backend] Cleanup failed:', err);
+    console.error('[backend] Aggressive cleanup failed:', err);
     res.status(500).json({ error: 'Cleanup failed', details: String(err) });
   }
 });
@@ -192,6 +201,12 @@ app.put('/api/clients/:id', async (req, res) => {
     const { id } = req.params;
     const clientData = req.body;
     
+    // 首先清理所有重复记录，只保留最新的一个
+    await Client.deleteMany({ 
+      id: id,
+      _id: { $ne: (await Client.findOne({ id: id }).sort({ updatedAt: -1 }))?._id }
+    });
+    
     // 移除roadCode字段避免冲突，然后单独处理
     const { roadCode, ...clientDataWithoutRoadCode } = clientData;
     
@@ -199,7 +214,7 @@ app.put('/api/clients/:id', async (req, res) => {
       { id: id },
       { 
         ...clientDataWithoutRoadCode,
-        roadCode: roadCode, // 单独设置roadCode避免冲突
+        roadCode: roadCode,
         updatedAt: new Date(),
         $setOnInsert: { 
           createdAt: new Date()
@@ -218,20 +233,21 @@ app.put('/api/clients/:id', async (req, res) => {
   } catch (err) {
     console.error('[backend] MongoDB update failed:', err);
     
-    // 处理重复键错误
+    // 处理重复键错误 - 强制清理并重新创建
     if (err.code === 11000) {
       const duplicateField = Object.keys(err.keyPattern || {})[0];
       console.error('[backend] Duplicate key error on field:', duplicateField, 'value:', err.keyValue);
       
-      // 尝试替代方案：先删除冲突记录，再插入新记录
       try {
+        // 强制删除所有重复记录
         await Client.deleteMany({ id: id });
+        // 重新创建
         const newClient = new Client(clientData);
         await newClient.save();
-        console.log('[backend] Client recreated after conflict resolution:', id);
-        return res.json({ success: true, id: newClient.id, action: 'recreated' });
+        console.log('[backend] Client force recreated after conflict:', id);
+        return res.json({ success: true, id: newClient.id, action: 'force-recreated' });
       } catch (retryErr) {
-        console.error('[backend] Conflict resolution failed:', retryErr);
+        console.error('[backend] Force recreation failed:', retryErr);
         return res.status(409).json({ 
           error: `Duplicate ${duplicateField}`, 
           details: `The ${duplicateField} already exists and could not be resolved`,
