@@ -606,6 +606,13 @@ function CoachesTab({
     setForm({ name: '', specialties: '' });
   };
 
+  const deleteCoach = (coach: Coach) => {
+    if (!window.confirm(`确认删除教练「${coach.name}」(${coach.code})？\n该教练下的客户将变为未分配状态。`)) return;
+    const updated = coaches.filter((c) => c.code !== coach.code);
+    onCoachesChange(updated);
+    lsSet('coaches', updated);
+  };
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
@@ -654,9 +661,17 @@ function CoachesTab({
                   {myClients.length === 0 && <span style={{ fontSize: 11, color: 'var(--s400)' }}>暂无客户</span>}
                 </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
+              <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                 <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--p)' }}>{myClients.length}</div>
                 <div className="lbl">客户</div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: '#B42318', fontSize: 11 }}
+                  onClick={() => deleteCoach(ch)}
+                  title="删除教练"
+                >
+                  删除
+                </button>
               </div>
             </div>
           );
@@ -754,6 +769,38 @@ function ClientsTab({
     const dt = new Date(value);
     if (Number.isNaN(dt.getTime())) return value;
     return dt.toLocaleString('zh-CN', { hour12: false });
+  };
+
+  const softDeleteClient = (client: Client) => {
+    if (!window.confirm(`确认删除客户「${client.name}」？\n删除后客户将移至"已删除客户"列表，可在管理端恢复或彻底删除。`)) return;
+    const updated = clients.map((c) =>
+      c.id === client.id
+        ? {
+            ...c,
+            deletedAt: new Date().toISOString(),
+            deletedByCoachCode: 'ADMIN',
+            deletedByCoachName: '管理员',
+          }
+        : c
+    );
+    onClientsChange(updated);
+    persistClientsToStores(updated);
+  };
+
+  const restoreClient = (client: Client) => {
+    if (!window.confirm(`确认恢复客户「${client.name}」？`)) return;
+    const updated = clients.map((c) =>
+      c.id === client.id
+        ? {
+            ...c,
+            deletedAt: undefined,
+            deletedByCoachCode: undefined,
+            deletedByCoachName: undefined,
+          }
+        : c
+    );
+    onClientsChange(updated);
+    persistClientsToStores(updated);
   };
 
   const hardDeleteClient = (client: Client) => {
@@ -855,9 +902,18 @@ function ClientsTab({
                   </td>
                   <td style={{ padding: '10px 12px' }}>{(c.sessions || []).length}</td>
                   <td style={{ padding: '10px 12px' }}>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setViewPlanClient(c)}>
-                      查看计划
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setViewPlanClient(c)}>
+                        查看计划
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        style={{ background: '#B42318', color: '#fff' }}
+                        onClick={() => softDeleteClient(c)}
+                      >
+                        删除
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -912,9 +968,18 @@ function ClientsTab({
                   </td>
                   <td style={{ padding: '10px 12px', color: 'var(--s700)' }}>{formatDeletedAt(c.deletedAt)}</td>
                   <td style={{ padding: '10px 12px' }}>
-                    <button className="btn btn-sm" style={{ background: '#B42318', color: '#fff' }} onClick={() => hardDeleteClient(c)}>
-                      彻底删除
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="btn btn-sm"
+                        style={{ background: 'var(--p)', color: '#fff' }}
+                        onClick={() => restoreClient(c)}
+                      >
+                        恢复
+                      </button>
+                      <button className="btn btn-sm" style={{ background: '#B42318', color: '#fff' }} onClick={() => hardDeleteClient(c)}>
+                        彻底删除
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
