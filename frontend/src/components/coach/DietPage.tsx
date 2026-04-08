@@ -113,7 +113,17 @@ function NewPlanForm({ onSave, onCancel }: { onSave: (p: DietPlan) => void; onCa
   };
 
   return (
-    <div style={{ padding: '14px 16px', background: 'var(--color-background-secondary)', borderRadius: 12, marginBottom: 10 }}>
+    <div
+      style={{
+        padding: '14px 16px',
+        background: 'rgba(255, 255, 255, 0.78)',
+        border: '1px solid rgba(255, 255, 255, 0.9)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        borderRadius: 12,
+        marginBottom: 10,
+      }}
+    >
       <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>新建阶段方案</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
         <div><div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>方案名称 *</div><input style={inputStyle} placeholder="如：减脂阶段 Phase 1" value={form.title} onChange={f('title')} /></div>

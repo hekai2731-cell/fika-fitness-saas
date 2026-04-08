@@ -1260,75 +1260,40 @@ export function PlanningPage({
     setLoadingWeek(true);
     setError(null);
     try {
-      let outlineByDayKey: Record<string, { day_focus: string; session_name: string }> = {};
-      try {
-        const outline = await fetchJsonOrThrow(apiUrl('/api/week-plan'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clientId: clientIdentifier,
-            clientName: client.name,
-            gender: client.gender,
-            age: client.age,
-            height: client.height,
-            weight: client.weight,
-            surveyData: (client as any).survey_data,
-            weeklyData: client.weeklyData ?? (client as any).weekly_data,
-            ...buildAiConfirmPayload(),
-            sessionTier: tierOverride || client.tier || 'standard',
-            blockTitle: selectedBlock.title,
-            weekLabel: `Week ${selectedWeek.week_num}`,
-            weeksTotal: (client as any).weeks_total ?? (client as any).weeksTotal ?? (client as any).weeks,
-            blockGoal: (selectedBlock as any).goal,
-            coachRules: (client as any).coachRules,
-            intensityPhase: (selectedBlock as any).intensity_phase,
-            days: (selectedWeek.days || []).map((d: any, i: number) => ({
-              dayKey: d.day || `day${i + 1}`,
-              dayName: d.day,
-              dayFocus: d.focus || d.name,
-            })),
-          }),
-        });
-
-        const list = (outline as any)?.days || [];
-        outlineByDayKey = (Array.isArray(list) ? list : []).reduce((acc: any, d: any) => {
-          const k = String(d?.day_key || d?.dayKey || d?.day || d?.day_of_week || '');
-          if (k) acc[k] = { day_focus: String(d?.day_focus || ''), session_name: String(d?.session_name || '') };
-          return acc;
-        }, {});
-      } catch {
-        outlineByDayKey = {};
-      }
-
-      const dayPlans: Record<string, any> = {};
-      for (let di = 0; di < (selectedWeek.days || []).length; di++) {
-        const d = selectedWeek.days[di];
-        const outline = outlineByDayKey[String(d.day)] || outlineByDayKey[`day${di + 1}`];
-        const json = await fetchJsonOrThrow(apiUrl('/api/session-plan'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clientId: clientIdentifier,
-            clientName: client.name,
-            gender: client.gender,
-            age: client.age,
-            height: client.height,
-            weight: client.weight,
-            surveyData: (client as any).survey_data,
-            weeklyData: client.weeklyData ?? (client as any).weekly_data,
-            ...buildAiConfirmPayload(),
+      const outline = await fetchJsonOrThrow(apiUrl('/api/week-plan'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: clientIdentifier,
+          clientName: client.name,
+          gender: client.gender,
+          age: client.age,
+          height: client.height,
+          weight: client.weight,
+          surveyData: (client as any).survey_data,
+          weeklyData: client.weeklyData ?? (client as any).weekly_data,
+          ...buildAiConfirmPayload(),
+          sessionTier: tierOverride || client.tier || 'standard',
+          blockTitle: selectedBlock.title,
+          weekLabel: `Week ${selectedWeek.week_num}`,
+          weeksTotal: (client as any).weeks_total ?? (client as any).weeksTotal ?? (client as any).weeks,
+          blockGoal: (selectedBlock as any).goal,
+          coachRules: (client as any).coachRules,
+          intensityPhase: (selectedBlock as any).intensity_phase,
+          days: (selectedWeek.days || []).map((d: any, i: number) => ({
+            dayKey: d.day || `day${i + 1}`,
             dayName: d.day,
-            dayFocus: outline?.day_focus || d.focus || d.name,
-            sessionTier: tierOverride || client.tier || 'standard',
-            lastSessionRpe: (client.sessions || []).slice(-1)[0]?.rpe || undefined,
-            blockTitle: selectedBlock.title,
-            weekLabel: `Week ${selectedWeek.week_num}`,
-            blockIndex: Math.max(0, (client.blocks || []).findIndex(b => b.id === selectedBlock.id)),
-          }),
-        });
-        dayPlans[d.day] = json;
-        dayPlans[`day${di + 1}`] = json;
-      }
+            dayFocus: d.focus || d.name,
+          })),
+        }),
+      });
+
+      const list = (outline as any)?.days || [];
+      const outlineByDayKey: Record<string, { day_focus: string; session_name: string }> = (Array.isArray(list) ? list : []).reduce((acc: any, d: any) => {
+        const k = String(d?.day_key || d?.dayKey || d?.day || d?.day_of_week || '');
+        if (k) acc[k] = { day_focus: String(d?.day_focus || ''), session_name: String(d?.session_name || '') };
+        return acc;
+      }, {});
 
       const next: Client = {
         ...client,
@@ -1338,17 +1303,17 @@ export function PlanningPage({
             training_weeks: (b.training_weeks || []).map(w =>
               w.id !== selectedWeek.id ? w : {
                 ...w,
+                weekly_sessions: Number((outline as any)?.weekly_sessions || (outline as any)?.sessions_per_week || 0),
+                week_brief: String((outline as any)?.week_brief || (outline as any)?.week_theme || ''),
                 days: (w.days || []).map((d, di) => {
-                  const plan = dayPlans[d.day] || dayPlans[`day${di + 1}`] || null;
-                  if (!plan) return d;
+                  const byName = outlineByDayKey[String(d.day)] || outlineByDayKey[String(d.day || '').toUpperCase()] || null;
+                  const byIndex = outlineByDayKey[`day${di + 1}`] || null;
+                  const dayOutline = byName || byIndex;
+                  if (!dayOutline) return d;
                   return {
                     ...d,
-                    name: plan.session_name || outlineByDayKey[String(d.day)]?.session_name || d.name,
-                    focus: outlineByDayKey[String(d.day)]?.day_focus || d.focus,
-                    modules: (plan.modules || []).map((m: any) => ({
-                      ...m, id: genId('mod'),
-                      exercises: (m.exercises || []).map((ex: any) => ({ ...ex, id: genId('ex'), weight: '' })),
-                    })),
+                    name: dayOutline.session_name || d.name,
+                    focus: dayOutline.day_focus || d.focus,
                   };
                 }),
               }

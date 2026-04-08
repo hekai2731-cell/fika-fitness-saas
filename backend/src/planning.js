@@ -23,10 +23,10 @@ export async function generateWeekPlan(input = {}) {
 - 训练周：${input.weekLabel || ''}
 
 【生成目标】
-- 为本周每一天确定：day_focus（训练重点）与 session_name（课程名）
-- 重点必须有周内节奏（例如：推/拉/腿/核心/恢复 或 上/下肢交替），避免每天都一样
-- 必须考虑伤病史与不适区域：自动规避相关动作类别（这里只写重点，不写动作）
-- 不输出具体 modules/exercises（那是 /api/session-plan 的职责）
+- 只输出本周训练频次（weekly_sessions）与周简介（week_brief）
+- 周简介需体现本周节奏、恢复安排、风险规避（如伤病/不适）
+- 不输出每天单次训练细节与动作（不写 modules/exercises）
+- days 字段仅作可选的极简摘要（可为空数组）
 `;
 
   if (String(input.blockGoal || '').trim()) {
@@ -89,13 +89,15 @@ export async function generateWeekPlan(input = {}) {
             properties: {
               week_title: { type: 'string' },
               week_theme: { type: 'string' },
+              weekly_sessions: { type: 'number', description: '本周训练次数，建议 2-6 次' },
+              week_brief: { type: 'string', description: '本周训练简介（2-4句）' },
               days: {
                 type: 'array',
                 items: daySchema,
-                description: '按输入天数输出对应数量；若未给输入，输出 4-5 天训练建议',
+                description: '可选：极简日摘要；如果不需要可返回空数组',
               },
             },
-            required: ['week_title', 'week_theme', 'days'],
+            required: ['week_title', 'week_theme', 'weekly_sessions', 'week_brief', 'days'],
             additionalProperties: false,
           },
         },
@@ -130,6 +132,8 @@ export async function generateWeekPlan(input = {}) {
     const weekPlan = {
       week_title: String(weekPlanRaw?.week_title || weekPlanRaw?.weekTitle || input.weekLabel || 'Week Plan'),
       week_theme: String(weekPlanRaw?.week_theme || weekPlanRaw?.weekTheme || weekPlanRaw?.week_focus || weekPlanRaw?.weekFocus || ''),
+      weekly_sessions: Number(weekPlanRaw?.weekly_sessions || weekPlanRaw?.sessions_per_week || Math.max(2, Math.min(6, days.length || 3))),
+      week_brief: String(weekPlanRaw?.week_brief || weekPlanRaw?.week_summary || weekPlanRaw?.week_theme || weekPlanRaw?.weekTheme || ''),
       days: normalizedDays,
       tier: sessionTier,
       intensity_phase: intensityPhase,

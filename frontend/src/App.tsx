@@ -16,7 +16,7 @@ import { PlanningPage } from './components/coach/PlanningPage';
 import { FinancePage } from './components/coach/FinancePage';
 import { HeartRatePage } from './components/coach/HeartRatePage';
 import { DietPage } from './components/coach/DietPage';
-import { loadClients, loadClientsAsync, loadCoaches, saveClient, saveClients } from '@/lib/store';
+import { getCoachesFromCache, loadClients, loadClientsAsync, loadCoaches, saveClient, saveClients } from '@/lib/store';
 import { initSync } from '@/lib/sync';
 // ↓ 新增两个组件 import
 import { StudentPortal } from './components/student/StudentPortal';
@@ -1140,8 +1140,10 @@ function App() {
 
   // 教练登录
   const handleCoachLogin = (coachCode: string, remember: boolean): boolean => {
-    const coaches = lsGet<Array<{ code: string; name: string }>>('coaches', []);
-    const coach = coaches.find((c) => c.code === coachCode);
+    const latestCoaches = getCoachesFromCache();
+    const legacyCoaches = lsGet<Array<{ code: string; name: string }>>('coaches', []);
+    const coaches = latestCoaches.length > 0 ? latestCoaches : legacyCoaches;
+    const coach = coaches.find((c) => String(c.code || '').toUpperCase() === coachCode);
     if (!coach) return false;
     persistSession({ role: 'coach', coachCode: coach.code, coachName: coach.name }, remember);
     persistLastLogin({ coachCode: coach.code }, remember);
