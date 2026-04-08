@@ -82,23 +82,46 @@ app.post('/api/clients', async (req, res) => {
   try {
     const clientData = req.body;
     
-    // 检查是否已存在
-    const existing = await Client.findOne({ 
-      $or: [{ id: clientData.id }, { roadCode: clientData.roadCode }] 
-    });
+    // 使用 findOneAndUpdate 配合 upsert: true
+    const client = await Client.findOneAndUpdate(
+      { 
+        $or: [
+          { id: clientData.id }, 
+          { roadCode: clientData.roadCode }
+        ]
+      },
+      { 
+        ...clientData, 
+        updatedAt: new Date(),
+        $setOnInsert: { 
+          createdAt: new Date(),
+          deletedAt: undefined // 确保新创建的记录没有被删除标记
+        }
+      },
+      { 
+        new: true, 
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true
+      }
+    );
     
-    if (existing) {
-      return res.status(409).json({ error: 'client already exists' });
+    console.log('[backend] Client upserted in MongoDB:', client.id, client.roadCode);
+    res.json({ success: true, id: client.id, action: client.isNew ? 'created' : 'updated' });
+  } catch (err) {
+    console.error('[backend] MongoDB upsert failed:', err);
+    
+    // 处理重复键错误
+    if (err.code === 11000) {
+      const duplicateField = Object.keys(err.keyPattern || {})[0];
+      return res.status(409).json({ 
+        error: `Duplicate ${duplicateField}`, 
+        details: `The ${duplicateField} already exists`,
+        code: 'DUPLICATE_KEY'
+      });
     }
     
-    const client = new Client(clientData);
-    await client.save();
-    
-    console.log('[backend] Client created in MongoDB:', client.id);
-    res.json({ success: true, id: client.id });
-  } catch (err) {
-    console.error('[backend] MongoDB save failed:', err);
-    res.status(500).json({ error: 'MongoDB connection failed', details: String(err) });
+    res.status(500).json({ error: 'MongoDB operation failed', details: String(err) });
   }
 });
 
@@ -171,8 +194,15 @@ app.post('/api/week-plan', async (req, res) => {
     const payload = req.body || {};
     const plan = await generateWeekPlan(payload);
     if (plan?.error) return res.status(500).json(plan);
-    const saved = await persistGeneratedPlan('week', payload, plan);
-    res.json({ ...plan, planId: saved._id });
+    
+    // Try to save to database, but don't fail if it's not available
+    try {
+      const saved = await persistGeneratedPlan('week', payload, plan);
+      res.json({ ...plan, planId: saved._id });
+    } catch (dbErr) {
+      console.log('[backend] Database save failed for week plan, returning result without persistence:', dbErr.message);
+      res.json({ ...plan, planId: null, saved: false });
+    }
   } catch (err) {
     res.status(500).json({ error: 'week plan failed', details: String(err) });
   }
@@ -183,8 +213,15 @@ app.post('/api/full-plan', async (req, res) => {
     const payload = req.body || {};
     const plan = await generateFullPlan(payload);
     if (plan?.error) return res.status(500).json(plan);
-    const saved = await persistGeneratedPlan('full', payload, plan);
-    res.json({ ...plan, planId: saved._id });
+    
+    // Try to save to database, but don't fail if it's not available
+    try {
+      const saved = await persistGeneratedPlan('full', payload, plan);
+      res.json({ ...plan, planId: saved._id });
+    } catch (dbErr) {
+      console.log('[backend] Database save failed for full plan, returning result without persistence:', dbErr.message);
+      res.json({ ...plan, planId: null, saved: false });
+    }
   } catch (err) {
     res.status(500).json({ error: 'full plan failed', details: String(err) });
   }

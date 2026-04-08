@@ -24,9 +24,6 @@ const ClientSchema = new mongoose.Schema({
   dietPlans: [{ type: mongoose.Schema.Types.Mixed }],
   
   // 评估数据
-  weight: { type: Number },
-  height: { type: Number },
-  age: { type: Number },
   metrics: { type: mongoose.Schema.Types.Mixed },
   assessments: { type: mongoose.Schema.Types.Mixed },
   
@@ -53,9 +50,7 @@ const ClientSchema = new mongoose.Schema({
   collection: 'fika_clients'
 });
 
-// 索引
-ClientSchema.index({ id: 1 });
-ClientSchema.index({ roadCode: 1 });
+// 索引 - unique字段已经自动创建索引，只需要额外的查询索引
 ClientSchema.index({ coachCode: 1 });
 ClientSchema.index({ deletedAt: 1 });
 

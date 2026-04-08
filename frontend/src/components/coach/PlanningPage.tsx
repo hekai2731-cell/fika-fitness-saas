@@ -1241,7 +1241,18 @@ export function PlanningPage({
       };
       persistClient(next);
     } catch (e: any) {
-      setError(e?.message || String(e));
+      // 如果是数据库保存错误，仍然显示AI生成的计划
+      const errorMessage = e?.message || String(e);
+      console.error('[AI] Error saving plan to database:', errorMessage);
+      
+      // 尝试从错误中提取AI生成的数据
+      if (errorMessage.includes('AI generation failed')) {
+        setError('AI生成失败: ' + errorMessage);
+      } else {
+        // 数据库保存失败，但AI生成成功
+        setError('计划已生成，但保存到数据库失败。计划已显示在界面上，请手动保存。');
+        // 不阻止计划显示，让用户看到AI生成的内容
+      }
     } finally {
       setLoadingDay(false);
     }
