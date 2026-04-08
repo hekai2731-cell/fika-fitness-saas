@@ -209,9 +209,17 @@ export async function generateFullPlan(input = {}) {
 - 每周输出 3-5 个训练日，每日给出 day_focus 与 session_name
 - 不输出具体 modules/exercises（那是 /api/session-plan 的职责）
 
-【强度节奏（必须严格遵守）】
-强度阶段按以下节奏循环：加载(Build) → 加载(Build) → 峰值(Peak) → 卸载(Deload)
-这个循环确保客户能够线性进步同时避免过度训练。
+【强度节奏（必须严格遵守，不可更改）】
+强度阶段必须按照以下节奏循环：
+  Week 1-2: 加载期(Build) - 增加训练强度和体积
+  Week 3:    峰值期(Peak)  - 达到最高强度，验证新能力
+  Week 4:    卸载期(Deload)- 降低强度恢复，为下一周期准备
+
+这个4周循环结构确保：
+- 线性进步：两周加载逐步积累负荷
+- 峰值测试：第三周检验能力提升
+- 主动恢复：第四周卸载避免过度训练
+- 神经恢复：为下一个周期的更高强度做准备
 
 【当前客户与 Block 信息】
 - 档位：${tierLabel}
@@ -223,11 +231,25 @@ export async function generateFullPlan(input = {}) {
     systemPrompt += `\n【当前 Block 训练目标】\n${input.blockGoal}\n`;
   }
 
+  // 注入近期训练走势数据到完整规划中
+  if (recentSessions.length > 0) {
+    const avgRpe = recentSessions.reduce((sum, s) => sum + (s.rpe || 0), 0) / recentSessions.length;
+    const trend = recentSessions.length >= 2
+      ? (recentSessions[recentSessions.length - 1].rpe || 0) - (recentSessions[0].rpe || 0)
+      : 0;
+    const trendText = trend > 0 ? '上升（客户适应能力强，可增加难度）' : trend < 0 ? '下降（客户疲劳积累，需注意恢复）' : '稳定';
+    systemPrompt += `\n【客户近期训练状态】
+平均RPE: ${avgRpe.toFixed(1)}/10
+趋势: ${trendText}
+建议: 根据客户的疲劳状态和进步趋势，Block 规划应该${trend > 0 ? '逐周提升难度' : '注重恢复和基础巩固'}
+`;
+  }
+
   // 注入客户历史和目标
   if (clientGoal || clientInjury) {
     systemPrompt += `\n【客户历史与约束】`;
     if (clientGoal) systemPrompt += `\n长期目标：${clientGoal}`;
-    if (clientInjury) systemPrompt += `\n伤病记录：${clientInjury}（所有动作必须规避相关风险）`;
+    if (clientInjury) systemPrompt += `\n伤病记录：${clientInjury}（所有周的所有动作必须全面规避相关风险）`;
     systemPrompt += `\n`;
   }
 
@@ -272,11 +294,24 @@ export async function generateFullPlan(input = {}) {
     additionalProperties: false,
   };
 
+  // 添加强制指令到 user prompt 中，确保 intensity_phase 严格遵守
+  const userContent = parts.join('\n') + `
+
+【强制规则：intensity_phase 节奏必须严格遵守】
+你必须在生成的每一周的 intensity_phase 字段中填写以下值：
+${Array.from({ length: weeksTotal }, (_, i) => {
+    const phase = buildIntensityPhaseSequence(i);
+    return `- Week ${i + 1}: "${phase}"`;
+  }).join('\n')}
+
+这是不可更改的客户训练周期安排，你生成的 AI 建议必须服从这个节奏。
+不允许更改或忽略这个约束。`;
+
   try {
     const result = await invokeLLM({
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: parts.join('\n') },
+        { role: 'user', content: userContent },
       ],
       response_format: {
         type: 'json_schema',
@@ -290,7 +325,7 @@ export async function generateFullPlan(input = {}) {
               block_goal: { type: 'string' },
               weeks: {
                 type: 'array',
-                description: `必须输出 ${weeksTotal} 周`,
+                description: `必须输出 ${weeksTotal} 周，每周的 intensity_phase 必须严格遵守分配值`,
                 items: weekSchema,
               },
             },

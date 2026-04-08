@@ -494,20 +494,46 @@ group_tag 说明：超级组内动作标注 A1/A2/A3，循环动作标注 D1/D2/
 Standard档 dyline 字段可省略，Pro/Ultra档必填。
 `;
 
+  // Block 训练目标是每次课程的指挥棒 - 优先级最高
   if (String(input.blockGoal || '').trim()) {
-    systemPrompt += `\n\n【当前 Block 训练目标】\n${input.blockGoal}\n本次课程动作选择必须服务于此目标。`;
+    systemPrompt += `\n\n【当前 Block 训练目标（本次课程的指挥棒）】
+${input.blockGoal}
+
+规则：
+- 本次课程的所有动作选择必须直接服务于此目标
+- 如果某个动作与此目标无关，即使教练建议也要规避
+- 动作选择优先级：Block目标 > 周重点 > 日重点 > 前次动作递增`;
   }
 
-  // 注入上周训练总结（周规划时保存的摘要）
+  // 上周训练总结与本周反馈的闭环
   if (lastWeekBrief) {
-    systemPrompt += `\n\n【上周训练总结】\n${lastWeekBrief}\n参考上周反馈优化本次课程。`;
+    systemPrompt += `\n\n【上周执行总结与改进方向】
+${lastWeekBrief}
+
+执行要点：
+- 如果上周动作技术有问题，本次应选择更简化的变式
+- 如果上周疲劳指标高，本次应降低强度和组数
+- 如果上周完成质量好，本次可在此基础上递增强度或复杂度
+- 延续有效的训练刺激，改进遇到的问题`;
   }
 
-  // 注入近期训练走势（5次 RPE 记录）
+  // 近期训练走势数据 - 用于动态调整本次课程强度
   if (recentSessions.length > 0) {
     const rpeRecords = recentSessions.map(s => `${s.date || '未知'}: RPE ${s.rpe || 0}/10`).join('，');
     const avgRpe = recentSessions.reduce((sum, s) => sum + (s.rpe || 0), 0) / recentSessions.length;
-    systemPrompt += `\n\n【近期训练RPE趋势（近${recentSessions.length}次）】\n${rpeRecords}\n平均RPE: ${avgRpe.toFixed(1)}/10\n根据疲劳趋势调整本次强度。`;
+    const trend = recentSessions.length >= 2
+      ? (recentSessions[recentSessions.length - 1].rpe || 0) - (recentSessions[0].rpe || 0)
+      : 0;
+    const trendText = trend > 1 ? '疲劳积累' : trend < -1 ? '恢复趋势' : '相对稳定';
+    systemPrompt += `\n\n【近期训练RPE趋势分析（近${recentSessions.length}次）】
+训练记录：${rpeRecords}
+平均RPE: ${avgRpe.toFixed(1)}/10
+走势: ${trendText}
+
+调整逻辑：
+- 如果平均RPE >= 8 或有疲劳积累：降低本次强度，减少组数，增加组间休息
+- 如果平均RPE <= 4 或有恢复趋势：可逐步增加本次强度和复杂度
+- 如果平均RPE在 5-7：正常推进，维持或微调强度`;
   }
 
   if (Array.isArray(input.coachRules) && input.coachRules.length) {
@@ -558,14 +584,21 @@ Standard档 dyline 字段可省略，Pro/Ultra档必填。
     if (psd.sessionGoal === '恢复激活') parts.push('⚠️ 强制：恢复激活模式，整体强度不超过RPE 5');
   }
 
+  // 同类训练日的上一次记录 - 作为动作递增和变异的基准
   if (Array.isArray(input.lastSessionExercises) && input.lastSessionExercises.length) {
     const dateStr = input.lastSessionDate ? `（${input.lastSessionDate}）` : '';
-    parts.push(`\n## 上次该日动作记录${dateStr}（必须在此基础上递增或变异，不得复制）`);
+    parts.push(`\n## 上次同类训练日动作记录${dateStr}`);
+    parts.push('规则：本次动作选择必须基于上次进行递增、变异或替换，不允许完全复制');
     input.lastSessionExercises.forEach((ex) => {
-      parts.push(
-        `- ${ex.name}  ${ex.sets}×${ex.reps}  间歇${ex.rest_seconds}s${ex.notes ? `  [${ex.notes}]` : ''}`,
-      );
+      const details = `${ex.name}  ${ex.sets}×${ex.reps}  间歇${ex.rest_seconds}s`;
+      const fullDetails = ex.notes ? `${details}  [${ex.notes}]` : details;
+      parts.push(`- ${fullDetails}`);
     });
+    parts.push('\n递增方式（按优先级）：');
+    parts.push('1. 增加组数（如 3×8 → 4×8）');
+    parts.push('2. 增加重量（同组数和次数）');
+    parts.push('3. 变式替换（保持训练目的，更高难度变式）');
+    parts.push('4. 修改节奏（如 3030 → X012，增加爆发性）');
   }
 
   parts.push(`\n请生成完整的 ${moduleCount} 模块课程方案，每个模块的动作数、格式、视角注释按档位规范严格执行。`);
