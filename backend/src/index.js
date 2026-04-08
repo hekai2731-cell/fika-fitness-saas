@@ -8,6 +8,7 @@ import { generateDietPlan } from './dietPlan.js';
 import { connectMongo } from './db/mongoose.js';
 import { Plan } from './models/Plan.js';
 import { Client } from './models/Client.js';
+import { Coach } from './models/Coach.js';
 import clientsRouter from './routes/clients.js';
 
 const app = express();
@@ -174,15 +175,11 @@ app.post('/api/admin/cleanup-duplicates', async (req, res) => {
 app.get('/api/clients', async (req, res) => {
   try {
     const { coachId, tempUserId } = req.query;
-    
-    if (!coachId && !tempUserId) {
-      return res.status(400).json({ error: 'coachId or tempUserId required' });
-    }
-    
+
     let query = {};
     if (coachId) query.coachCode = String(coachId);
     if (tempUserId) query.tempUserId = String(tempUserId);
-    
+
     const clients = await Client.find(query).lean();
     res.json(clients);
   } catch (err) {
@@ -329,6 +326,48 @@ app.delete('/api/clients/:id', async (req, res) => {
   } catch (err) {
     console.error('[backend] MongoDB delete failed:', err);
     res.status(500).json({ error: 'MongoDB connection failed', details: String(err) });
+  }
+});
+
+// Coach data APIs
+app.get('/api/coaches', async (req, res) => {
+  try {
+    const coaches = await Coach.find({}).lean();
+    res.json(coaches);
+  } catch (err) {
+    console.error('[backend] Failed to fetch coaches:', err);
+    res.status(500).json({ error: 'Failed to fetch coaches', details: String(err) });
+  }
+});
+
+app.put('/api/coaches', async (req, res) => {
+  try {
+    const coaches = req.body;
+    if (!Array.isArray(coaches)) {
+      return res.status(400).json({ error: 'Expected an array of coaches' });
+    }
+
+    // 清除所有现有教练，然后插入新的
+    await Coach.deleteMany({});
+
+    if (coaches.length > 0) {
+      await Coach.insertMany(coaches);
+    }
+
+    console.log('[backend] Coaches updated:', coaches.length);
+    res.json({ success: true, count: coaches.length });
+  } catch (err) {
+    console.error('[backend] Failed to update coaches:', err);
+
+    if (err.code === 11000) {
+      return res.status(409).json({
+        error: 'Duplicate coach code',
+        details: 'One or more coach codes already exist',
+        code: 'DUPLICATE_KEY'
+      });
+    }
+
+    res.status(500).json({ error: 'Failed to update coaches', details: String(err) });
   }
 });
 
