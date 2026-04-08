@@ -1055,67 +1055,60 @@ function App() {
     }
   }, []);
 
-  // 学员登录
+  // 学员登录 - 强制从服务器拉取
   const handleStudentLogin = async (roadCode: string, remember: boolean): Promise<boolean> => {
     try {
-      // 优先从数据库拉取数据
+      // 清空本地缓存，强制从服务器拉取
+      localStorage.removeItem('fika_current_client');
+      sessionStorage.removeItem('fika_current_client');
+      
       const isProduction = import.meta.env.PROD;
       const apiBase = isProduction ? '' : ((import.meta as any).env?.VITE_API_BASE_URL || '/api');
       const apiUrl = (path: string) => (apiBase ? String(apiBase).replace(/\/$/, '') + path : path);
       
-      // 尝试从所有教练的客户端中查找该路书码
+      console.log('[app] Force fetching student data from server for roadCode:', roadCode);
+      
+      // 从服务器拉取所有客户端数据
       const response = await fetch(apiUrl('/api/clients'));
-      if (response.ok) {
-        const allClients = await response.json();
-        let client = allClients.find((c: any) => String(c.roadCode || '').toUpperCase() === String(roadCode).toUpperCase());
-        
-        if (client) {
-          setCurrentStudent(client);
-          lsSet('current_client', client);
-          persistSession({ role: 'student', clientId: client.id, roadCode }, remember);
-          persistLastLogin({ roadCode }, remember);
-          setPage('student');
-          console.log('[app] Student logged in from database:', roadCode);
-          return true;
-        }
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
       }
+      
+      const allClients = await response.json();
+      console.log('[app] Fetched', allClients.length, 'clients from server');
+      
+      // 路书码主键化匹配 - 大小写敏感检查
+      const normalizedRoadCode = String(roadCode).trim().toUpperCase();
+      let client = allClients.find((c: any) => {
+        const dbRoadCode = String(c.roadCode || '').trim().toUpperCase();
+        return dbRoadCode === normalizedRoadCode;
+      });
+      
+      if (!client) {
+        console.warn('[app] No client found for roadCode:', normalizedRoadCode);
+        console.log('[app] Available roadCodes:', allClients.map((c: any) => String(c.roadCode || '').trim().toUpperCase()));
+        return false;
+      }
+      
+      // 设置客户端数据
+      setCurrentStudent(client);
+      lsSet('current_client', client);
+      persistSession({ role: 'student', clientId: client.id, roadCode }, remember);
+      persistLastLogin({ roadCode }, remember);
+      setPage('student');
+      
+      console.log('[app] Student successfully logged in from server:', {
+        roadCode: normalizedRoadCode,
+        clientId: client.id,
+        clientName: client.name
+      });
+      
+      return true;
+      
     } catch (error) {
-      console.warn('[app] Failed to fetch from database, falling back to local:', error);
+      console.error('[app] Failed to fetch student data from server:', error);
+      return false;
     }
-    
-    // 回退到本地存储
-    const clients = lsGet<any[]>('clients', []);
-    let client = clients.find((c) => c.roadCode === roadCode);
-    
-    // 演示模式：找不到则创建临时客户
-    if (!client) {
-      client = {
-        id: 'DEMO_' + roadCode,
-        roadCode,
-        name: roadCode,
-        gender: 'male',
-        age: 25,
-        height: 170,
-        weight: 65,
-        tier: 'pro',
-        goal: '功能性力量',
-        weeks: 15,
-        injury: '',
-        coachCode: 'COACH001',
-        blocks: [],
-        sessions: [],
-        weeklyData: [],
-        dietPlans: [],
-      };
-    }
-    
-    setCurrentStudent(client);
-    lsSet('current_client', client);
-    persistSession({ role: 'student', clientId: client.id, roadCode }, remember);
-    persistLastLogin({ roadCode }, remember);
-    setPage('student');
-    console.log('[app] Student logged in from local storage:', roadCode);
-    return true;
   };
 
   // 教练登录
