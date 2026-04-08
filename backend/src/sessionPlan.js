@@ -2,6 +2,8 @@ export async function generateSessionPlan(input = {}) {
   const sessionTier = input.sessionTier || 'standard';
   const lastRpe = input.lastSessionRpe ?? 0;
   const blockIndex = input.blockIndex ?? 0;
+  const lastWeekBrief = String(input.lastWeekBrief || '').trim();
+  const recentSessions = Array.isArray(input.recentSessions) ? input.recentSessions : [];
 
   const intensity = blockIndex % 3 === 2 ? 'deload' : blockIndex % 3 === 1 ? 'peak' : 'build';
   const intensityLabel = intensity === 'deload' ? '卸载期 Deload' : intensity === 'peak' ? '峰值期 Peak' : '加载期 Build';
@@ -494,6 +496,18 @@ Standard档 dyline 字段可省略，Pro/Ultra档必填。
 
   if (String(input.blockGoal || '').trim()) {
     systemPrompt += `\n\n【当前 Block 训练目标】\n${input.blockGoal}\n本次课程动作选择必须服务于此目标。`;
+  }
+
+  // 注入上周训练总结（周规划时保存的摘要）
+  if (lastWeekBrief) {
+    systemPrompt += `\n\n【上周训练总结】\n${lastWeekBrief}\n参考上周反馈优化本次课程。`;
+  }
+
+  // 注入近期训练走势（5次 RPE 记录）
+  if (recentSessions.length > 0) {
+    const rpeRecords = recentSessions.map(s => `${s.date || '未知'}: RPE ${s.rpe || 0}/10`).join('，');
+    const avgRpe = recentSessions.reduce((sum, s) => sum + (s.rpe || 0), 0) / recentSessions.length;
+    systemPrompt += `\n\n【近期训练RPE趋势（近${recentSessions.length}次）】\n${rpeRecords}\n平均RPE: ${avgRpe.toFixed(1)}/10\n根据疲劳趋势调整本次强度。`;
   }
 
   if (Array.isArray(input.coachRules) && input.coachRules.length) {

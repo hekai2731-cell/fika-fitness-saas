@@ -1,6 +1,8 @@
 export async function generateWeekPlan(input = {}) {
   const sessionTier = input.sessionTier || 'standard';
   const days = Array.isArray(input.days) ? input.days : [];
+  const recentSessions = Array.isArray(input.recentSessions) ? input.recentSessions : [];
+  const lastWeekBrief = String(input.lastWeekBrief || '').trim();
 
   const tierLabel =
     sessionTier === 'ultra'
@@ -18,7 +20,7 @@ export async function generateWeekPlan(input = {}) {
 
 【当前客户与周信息】
 - 档位：${tierLabel}
-- 强度阶段：${intensityPhase}
+- 强度阶段：${intensityPhase}（必须遵守此阶段的训练特点）
 - Block：${input.blockTitle || ''}
 - 训练周：${input.weekLabel || ''}
 
@@ -31,6 +33,35 @@ export async function generateWeekPlan(input = {}) {
 
   if (String(input.blockGoal || '').trim()) {
     systemPrompt += `\n【当前 Block 训练目标】\n${input.blockGoal}\n`;
+  }
+
+  // 注入近期训练走势分析 - 根据 RPE 数据动态调整本周强度
+  if (recentSessions.length > 0) {
+    const rpeAnalysis = recentSessions.map(s => `${s.date || '未知日期'}: RPE ${s.rpe || 0}/10`).join('，');
+    const avgRpe = recentSessions.reduce((sum, s) => sum + (s.rpe || 0), 0) / recentSessions.length;
+    const rpeStatus = avgRpe >= 8 ? '疲劳' : avgRpe >= 6 ? '中等负荷' : '恢复中';
+    const strengthAdjustment = avgRpe >= 8
+      ? '客户处于疲劳状态，本周应降低难度，增加恢复类训练日，避免过度训练'
+      : avgRpe >= 6
+        ? '客户处于中等负荷，本周可正常推进，维持当前强度'
+        : '客户处于恢复状态，本周可逐步增加强度，准备进入更高负荷';
+    systemPrompt += `\n【近期训练走势分析（近${recentSessions.length}次）】
+训练记录：${rpeAnalysis}
+平均RPE：${avgRpe.toFixed(1)}/10（${rpeStatus}）
+强度调整建议：${strengthAdjustment}
+`;
+  }
+
+  // 注入上周摘要 - 作为本周优化的依据
+  if (lastWeekBrief) {
+    systemPrompt += `\n【上周执行总结与优化建议】
+${lastWeekBrief}
+
+基于上周反馈，本周应：
+- 如果上周训练质量不足，本周应简化动作难度，提高完成质量
+- 如果上周疲劳积累，本周应增加恢复训练，避免连续高强度
+- 延续上周的有效训练模式，同时改进遇到的问题
+`;
   }
 
   if (Array.isArray(input.coachRules) && input.coachRules.length) {
@@ -144,6 +175,10 @@ export async function generateWeekPlan(input = {}) {
 export async function generateFullPlan(input = {}) {
   const sessionTier = input.sessionTier || 'standard';
   const weeksTotal = Number(input.weeksTotal || input.weeks || 4);
+  const recentSessions = Array.isArray(input.recentSessions) ? input.recentSessions : [];
+  const clientHistory = input.clientHistory || {};
+  const clientGoal = String(input.clientGoal || '').trim();
+  const clientInjury = String(input.clientInjury || '').trim();
 
   const tierLabel =
     sessionTier === 'ultra'
@@ -151,6 +186,14 @@ export async function generateFullPlan(input = {}) {
       : sessionTier === 'pro'
         ? 'Pro 进阶档（动力链视角）'
         : 'Standard 基础档（肌肉解剖视角）';
+
+  // 强制应用 intensity_phase 节奏：build → build → peak → deload
+  const buildIntensityPhaseSequence = (weekIndex) => {
+    const mod = weekIndex % 4;
+    if (mod === 3) return 'deload';
+    if (mod === 2) return 'peak';
+    return 'build'; // mod === 0, 1
+  };
 
   let systemPrompt = `你是 FiKA Fitness 的训练周期规划总设计师。
 你将为一个 Block 生成完整的「周期结构规划」，用于指导教练的周规划与每天细化。
@@ -162,6 +205,10 @@ export async function generateFullPlan(input = {}) {
 - 每周输出 3-5 个训练日，每日给出 day_focus 与 session_name
 - 不输出具体 modules/exercises（那是 /api/session-plan 的职责）
 
+【强度节奏（必须严格遵守）】
+强度阶段按以下节奏循环：加载(Build) → 加载(Build) → 峰值(Peak) → 卸载(Deload)
+这个循环确保客户能够线性进步同时避免过度训练。
+
 【当前客户与 Block 信息】
 - 档位：${tierLabel}
 - 周数：${weeksTotal}
@@ -170,6 +217,14 @@ export async function generateFullPlan(input = {}) {
 
   if (String(input.blockGoal || '').trim()) {
     systemPrompt += `\n【当前 Block 训练目标】\n${input.blockGoal}\n`;
+  }
+
+  // 注入客户历史和目标
+  if (clientGoal || clientInjury) {
+    systemPrompt += `\n【客户历史与约束】`;
+    if (clientGoal) systemPrompt += `\n长期目标：${clientGoal}`;
+    if (clientInjury) systemPrompt += `\n伤病记录：${clientInjury}（所有动作必须规避相关风险）`;
+    systemPrompt += `\n`;
   }
 
   if (Array.isArray(input.coachRules) && input.coachRules.length) {
@@ -271,10 +326,13 @@ export async function generateFullPlan(input = {}) {
           session_name: String(d?.session_name || d?.sessionName || d?.name || ''),
         }));
 
+        // 强制应用 intensity_phase 节奏，覆盖 AI 生成的值
+        const forcedIntensityPhase = buildIntensityPhaseSequence(i);
+
         return {
           week_num: Number(w?.week_num || w?.week_number || w?.weekNumber || i + 1),
           week_theme: String(w?.week_theme || w?.weekTheme || ''),
-          intensity_phase: String(w?.intensity_phase || w?.intensityPhase || w?.phase || 'build'),
+          intensity_phase: forcedIntensityPhase,
           days,
         };
       });
@@ -297,10 +355,12 @@ export async function generateFullPlan(input = {}) {
     if (!Array.isArray(weeks) || weeks.length === 0) {
       weeks = [];
       for (let wi = 0; wi < Math.max(1, weeksTotal); wi++) {
+        // 使用强制节奏生成回退周计划
+        const forcedPhase = buildIntensityPhaseSequence(wi);
         const outline = await generateWeekPlan({
           ...input,
           weekLabel: `Week ${wi + 1}`,
-          intensityPhase: intensityForWeek(wi),
+          intensityPhase: forcedPhase,
           days: fallbackDaysTemplate,
         });
         const days = Array.isArray(outline?.days) && outline.days.length
@@ -310,7 +370,7 @@ export async function generateFullPlan(input = {}) {
         weeks.push({
           week_num: wi + 1,
           week_theme: String(outline?.week_theme || ''),
-          intensity_phase: intensityForWeek(wi),
+          intensity_phase: forcedPhase,
           days: days.map((d) => ({
             day_key: String(d?.day_key || d?.dayKey || d?.day || ''),
             day_focus: String(d?.day_focus || ''),
