@@ -16,7 +16,7 @@ import { PlanningPage } from './components/coach/PlanningPage';
 import { FinancePage } from './components/coach/FinancePage';
 import { HeartRatePage } from './components/coach/HeartRatePage';
 import { DietPage } from './components/coach/DietPage';
-import { loadClients, loadCoaches } from '@/lib/store';
+import { loadClients, loadClientsAsync, loadCoaches, saveClients } from '@/lib/store';
 import { initSync } from '@/lib/sync';
 // ↓ 新增两个组件 import
 import { StudentPortal } from './components/student/StudentPortal';
@@ -990,10 +990,10 @@ function App() {
 
         // 从服务器拉取客户和教练数据
         await Promise.all([
-          loadClients().catch(err => {
+          loadClientsAsync().catch((err: any) => {
             console.warn('[app] Failed to load clients:', err);
           }),
-          loadCoaches().catch(err => {
+          loadCoaches().catch((err: any) => {
             console.warn('[app] Failed to load coaches:', err);
           }),
         ]);

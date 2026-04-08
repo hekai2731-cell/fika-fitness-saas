@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, type ReactNode } from 'react';
-import { loadCoaches, saveCoaches, getCoachesFromCache, type Coach as StoreCoach } from '@/lib/store';
+import { loadCoaches, saveCoaches, getCoachesFromCache } from '@/lib/store';
 
 // ── 类型 ─────────────────────────────────────────────────────
 interface Session {

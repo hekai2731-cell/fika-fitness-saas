@@ -20,7 +20,14 @@ function lsWriteClients(clients: Client[]) {
   localStorage.setItem(LS_KEY_CLIENTS, JSON.stringify(clients));
 }
 
-export async function loadClients(): Promise<Client[]> {
+// 同步版本 - 直接读 localStorage，所有现有代码都用这个
+export function loadClients(): Client[] {
+  const cached = lsReadClients();
+  return cached.length > 0 ? cached : [];
+}
+
+// 异步版本 - 从服务器拉取，只在 App.tsx 启动时调用一次
+export async function loadClientsAsync(): Promise<Client[]> {
   try {
     const response = await fetch('/api/clients');
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -31,11 +38,11 @@ export async function loadClients(): Promise<Client[]> {
   } catch (e) {
     console.warn('[store] Failed to fetch clients from server, using cache', e);
     const cached = lsReadClients();
-    return cached.length > 0 ? cached : [];
+    return cached;
   }
 }
 
-export function getClientFromCache(clientId: string): Client | null {
+export function getClient(clientId: string): Client | null {
   return lsReadClients().find(c => c.id === clientId) || null;
 }
 
@@ -43,6 +50,11 @@ export function getAllClientsFromCache(): Client[] {
   return lsReadClients();
 }
 
+export function saveClients(clients: Client[]) {
+  lsWriteClients(clients);
+}
+
+// 异步保存单个客户到服务器
 export async function saveClient(client: Client): Promise<void> {
   try {
     const response = await fetch(`/api/clients/${client.id}`, {
@@ -51,21 +63,17 @@ export async function saveClient(client: Client): Promise<void> {
       body: JSON.stringify(client),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const all = lsReadClients();
-    const idx = all.findIndex(c => c.id === client.id);
-    if (idx >= 0) all[idx] = client;
-    else all.unshift(client);
-    lsWriteClients(all);
     console.log('[store] Client saved:', client.id);
   } catch (e) {
     console.warn('[store] Failed to save client:', e);
-    const all = lsReadClients();
-    const idx = all.findIndex(c => c.id === client.id);
-    if (idx >= 0) all[idx] = client;
-    else all.unshift(client);
-    lsWriteClients(all);
   }
+
+  // 同时更新本地缓存
+  const all = lsReadClients();
+  const idx = all.findIndex(c => c.id === client.id);
+  if (idx >= 0) all[idx] = client;
+  else all.unshift(client);
+  lsWriteClients(all);
 }
 
 // ── 教练数据相关 ────────────────────────────────────────────
@@ -91,6 +99,12 @@ function lsWriteCoaches(coaches: Coach[]) {
   localStorage.setItem(LS_KEY_COACHES, JSON.stringify(coaches));
 }
 
+// 同步版本 - 直接读 localStorage
+export function getCoachesFromCache(): Coach[] {
+  return lsReadCoaches();
+}
+
+// 异步版本 - 从服务器拉取
 export async function loadCoaches(): Promise<Coach[]> {
   try {
     const response = await fetch('/api/coaches');
@@ -102,14 +116,11 @@ export async function loadCoaches(): Promise<Coach[]> {
   } catch (e) {
     console.warn('[store] Failed to fetch coaches from server, using cache', e);
     const cached = lsReadCoaches();
-    return cached.length > 0 ? cached : [];
+    return cached;
   }
 }
 
-export function getCoachesFromCache(): Coach[] {
-  return lsReadCoaches();
-}
-
+// 异步保存教练列表到服务器
 export async function saveCoaches(coaches: Coach[]): Promise<void> {
   try {
     const response = await fetch('/api/coaches', {
