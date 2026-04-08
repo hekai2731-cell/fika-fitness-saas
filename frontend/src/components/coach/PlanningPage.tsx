@@ -1160,7 +1160,7 @@ export function PlanningPage({
   /**
    * 提取最近5次训练数据：格式 { date, rpe }
    */
-  const extractRecentSessions = (sessions: any[]) => {
+  const extractRecentSessions = (sessions: any[] | undefined) => {
     return (sessions || []).slice(-5).map(s => ({
       date: s.date ? new Date(s.date).toLocaleDateString('zh-CN') : '未知',
       rpe: s.rpe || 0,
@@ -1427,6 +1427,7 @@ export function PlanningPage({
   const onGenerateWeekPlan = async () => {
     if (!client || !selectedWeek || !selectedBlock) return;
     const clientIdentifier = String((client as any).roadCode || client.id || 'unknown');
+    setLoadingWeek(true);
     setGeneratedPreview({ type: 'week', data: null, loading: true, error: null });
     try {
       // 提取最近5次数据
@@ -1525,6 +1526,8 @@ export function PlanningPage({
         error: '生成失败：' + errorMessage,
       });
       setError('周计划生成失败：' + errorMessage);
+    } finally {
+      setLoadingWeek(false);
     }
   };
 
@@ -1582,7 +1585,7 @@ export function PlanningPage({
       const avgRpe = totalSessions > 0
         ? Math.round((client.sessions || []).reduce((sum: number, s: any) => sum + (s.rpe || 0), 0) / totalSessions)
         : 0;
-      const sessionTypes = new Set((client.sessions || []).map(s => s.type || '通用').filter(Boolean));
+      const sessionTypes = new Set((client.sessions || []).map((s: any) => (s as any).type || '通用').filter(Boolean));
 
       let blocks: Block[] | null = null;
       let fullPlanData: any = null;
@@ -2553,6 +2556,153 @@ export function PlanningPage({
           </div>
         </div>
       )}
+
+      {/* 预览弹窗 */}
+      {aiPreviewMode && aiPreviewData && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
+          onClick={() => setGeneratedPreview({ type: null, data: null })}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 800,
+              maxHeight: '80vh',
+              overflow: 'auto',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: '#202737' }}>
+              {aiPreviewMode === 'day' && '日计划预览'}
+              {aiPreviewMode === 'week' && '周计划预览'}
+              {aiPreviewMode === 'full' && '完整规划预览'}
+            </div>
+
+            {/* 日计划预览内容 */}
+            {aiPreviewMode === 'day' && aiPreviewData && (
+              <div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>课程名称</div>
+                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>{aiPreviewData.session_name || '未命名'}</div>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>模块数</div>
+                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>{(aiPreviewData.modules || []).length} 个</div>
+                </div>
+                {(aiPreviewData.modules || []).map((mod: any, idx: number) => (
+                  <div key={idx} style={{ marginBottom: 12, padding: 10, background: '#f5f5f5', borderRadius: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#202737' }}>{mod.module_name}</div>
+                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                      {(mod.exercises || []).length} 个动作
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 周计划预览内容 */}
+            {aiPreviewMode === 'week' && aiPreviewData && (
+              <div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>周主题</div>
+                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>
+                    {aiPreviewData.week_theme ? JSON.stringify(aiPreviewData.week_theme).substring(0, 100) + '...' : '未提供'}
+                  </div>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>包含训练日</div>
+                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>
+                    {(aiPreviewData.days || []).length} 天
+                  </div>
+                </div>
+                {(aiPreviewData.days || []).map((d: any, idx: number) => (
+                  <div key={idx} style={{ marginBottom: 8, padding: 8, background: '#f5f5f5', borderRadius: 6 }}>
+                    <div style={{ fontWeight: 600, fontSize: 12, color: '#202737' }}>
+                      {d.session_name || `Day ${idx + 1}`}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                      {d.day_focus || '通用'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 完整规划预览内容 */}
+            {aiPreviewMode === 'full' && aiPreviewData && (
+              <div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>Block 数量</div>
+                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>{(aiPreviewData.blocks || []).length} 个</div>
+                </div>
+                {(aiPreviewData.blocks || []).map((block: any, idx: number) => (
+                  <div key={idx} style={{ marginBottom: 12, padding: 10, background: '#f5f5f5', borderRadius: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#202737' }}>{block.title}</div>
+                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                      {(block.training_weeks || []).length} 周
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 操作按钮 */}
+            <div style={{ display: 'flex', gap: 12, marginTop: 24, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setGeneratedPreview({ type: null, data: null })}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 6,
+                  border: '1px solid #ddd',
+                  background: '#f5f5f5',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#666',
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (aiPreviewMode === 'day') confirmSaveDayPlanFromPreview();
+                  else if (aiPreviewMode === 'week') applyWeekPlanPreview(aiPreviewData);
+                  else if (aiPreviewMode === 'full') confirmSaveFullPlanFromPreview();
+                }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: '#5d66ed',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                确认应用
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         .planning-premium {
           --panel-bg: rgba(255,255,255,.55);
