@@ -8,11 +8,15 @@ import { generateDietPlan } from './dietPlan.js';
 import { connectMongo } from './db/mongoose.js';
 import { Plan } from './models/Plan.js';
 import { Client } from './models/Client.js';
+import clientsRouter from './routes/clients.js';
 
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+
+// MongoDB 云同步路由 - 轻量级客户端数据同步
+app.use('/api/sync/clients', clientsRouter);
 
 const DEFAULT_TEMP_USER_ID = process.env.DEFAULT_TEMP_USER_ID || 'guest';
 

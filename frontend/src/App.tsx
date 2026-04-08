@@ -16,7 +16,7 @@ import { PlanningPage } from './components/coach/PlanningPage';
 import { FinancePage } from './components/coach/FinancePage';
 import { HeartRatePage } from './components/coach/HeartRatePage';
 import { DietPage } from './components/coach/DietPage';
-import { loadClients, saveClients } from '@/lib/store';
+import { loadClients, saveClients, loadClientsAsync, syncPending } from '@/lib/store';
 import { initSync } from '@/lib/sync';
 // ↓ 新增两个组件 import
 import { StudentPortal } from './components/student/StudentPortal';
@@ -1048,11 +1048,17 @@ function App() {
         apiBase,
         tempUserId,
       });
-      
+
       console.log('[app] Data sync service initialized with API base:', apiBase || '(relative paths)');
     } catch (error) {
       console.warn('[app] Failed to initialize sync service:', error);
     }
+
+    // MongoDB 云同步初始化
+    loadClientsAsync();
+    const handleOnline = () => syncPending();
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
   }, []);
 
   // 学员登录 - 强制从服务器拉取
