@@ -353,7 +353,7 @@ export function ClientsPage({
       persistClient({
         ...activeClient,
         bodyMetrics,
-        assessments: [...(activeClient.assessments || []), record],
+        assessments: [...activeAssessments, record],
       } as Client);
 
       setShowAssessmentForm(false);
@@ -426,6 +426,10 @@ export function ClientsPage({
     return <div style={{ fontSize: 13, color: 'var(--s500)' }}>暂无客户数据</div>;
   }
 
+  const activeSessions = Array.isArray(activeClient.sessions) ? activeClient.sessions : [];
+  const activeAssessments = Array.isArray(activeClient.assessments) ? activeClient.assessments : [];
+  const activeBlocks = Array.isArray(activeClient.blocks) ? activeClient.blocks : [];
+
   const score = (() => {
     try {
       return calcBodyAssetScore(activeClient);
@@ -444,7 +448,7 @@ export function ClientsPage({
   })();
   const standards = tierStandardMap[activeTier];
 
-  const latestAssessments = [...(activeClient.assessments || [])]
+  const latestAssessments = [...activeAssessments]
     .filter(a => a?.date) // 添加日期有效性检查
     .sort((a, b) => {
       const timeA = new Date(b.date).getTime();
@@ -471,8 +475,8 @@ export function ClientsPage({
     { v: activeClient.height && activeClient.weight ? (activeClient.weight / ((activeClient.height / 100) * (activeClient.height / 100))).toFixed(1) : '--', unit: '', tone: '#59637B' },
     { v: activeClient.weight ? Math.max(20, activeClient.weight * 0.45).toFixed(1) : '--', unit: 'kg', tone: '#4D5EDB' },
     { v: activeClient.weight && activeClient.height && activeClient.age ? Math.round(10 * activeClient.weight + 6.25 * activeClient.height - 5 * activeClient.age + 5) : '--', unit: 'kcal', tone: '#5E6579' },
-    { v: (activeClient.blocks || []).length, unit: '', tone: '#5662E6' },
-    { v: (activeClient.sessions || []).length, unit: '', tone: '#7A7F90' },
+    { v: activeBlocks.length, unit: '', tone: '#5662E6' },
+    { v: activeSessions.length, unit: '', tone: '#7A7F90' },
   ];
 
   const scoreDims = [
@@ -485,10 +489,11 @@ export function ClientsPage({
 
   // ── 今日工作台逻辑 ──
   const todayStr = new Date().toLocaleDateString('zh-CN');
-  const todaySessions = useMemo(() => {
+  const todaySessions = (() => {
     const sessionsWithClients = clients.map(client => {
       try {
-        const todaySession = (client.sessions || []).find(s => {
+        const clientSessions = Array.isArray(client.sessions) ? client.sessions : [];
+        const todaySession = clientSessions.find(s => {
           if (!s?.date) return false;
           const sessionDate = new Date(s.date).toLocaleDateString('zh-CN');
           return sessionDate === todayStr;
@@ -499,7 +504,7 @@ export function ClientsPage({
       }
     }).filter(Boolean) as Array<{ client: Client; session: any }>;
     return sessionsWithClients;
-  }, [clients, todayStr]);
+  })();
 
   const markTodaySession = (clientId: string) => {
     const client = clients.find(c => c.id === clientId);
@@ -977,7 +982,7 @@ export function ClientsPage({
             )}
 
             <div className="assessment-history-list">
-              {(activeClient.assessments || []).slice().reverse().map((a, idx) => (
+              {activeAssessments.slice().reverse().map((a, idx) => (
                 <div className="assessment-item-row" key={`${a.date}-${idx}`}>
                   <span>{a.date}</span>
                   <span>体脂 {typeof a.bf_pct === 'number' ? `${a.bf_pct}%` : '--'}</span>
@@ -1140,7 +1145,7 @@ export function ClientsPage({
                 </div>
               ) : (
                 todaySessions.map(({ client, session }) => {
-                  const clientSessions = client.sessions || [];
+                  const clientSessions = Array.isArray(client.sessions) ? client.sessions : [];
                   const lastSessionIdx = clientSessions.length - 2;
                   const lastSession = lastSessionIdx >= 0 ? clientSessions[lastSessionIdx] : null;
                   const daysSinceLastSession = lastSession && lastSession.date
@@ -1155,9 +1160,13 @@ export function ClientsPage({
                       })()
                     : null;
 
-                  const selectedBlock = (client.blocks || [])[0];
-                  const selectedWeek = selectedBlock ? (selectedBlock.training_weeks || [])[0] : null;
-                  const selectedDay = selectedWeek ? (selectedWeek.days || []).find(d => d.day === session.day) : null;
+                  const clientBlocks = Array.isArray(client.blocks) ? client.blocks : [];
+                  const selectedBlock = clientBlocks[0];
+                  const selectedWeeks = selectedBlock && Array.isArray((selectedBlock as any).training_weeks)
+                    ? (selectedBlock as any).training_weeks
+                    : [];
+                  const selectedWeek = selectedWeeks[0] || null;
+                  const selectedDay = selectedWeek ? (selectedWeek.days || []).find((d: any) => d.day === session.day) : null;
                   const hasPlan = selectedDay && Array.isArray((selectedDay as any).modules) && (selectedDay as any).modules.length > 0;
 
                   const tier = resolveMembershipLevel(client);
@@ -1282,7 +1291,7 @@ export function ClientsPage({
                   暂无训练记录
                 </div>
               ) : (
-                [...(activeClient.sessions || [])].filter(s => s?.date).reverse().map((session, idx, arr) => {
+                [...activeSessions].filter(s => s?.date).reverse().map((session, idx, arr) => {
                   const sessionDate = (() => {
                     try {
                       return new Date(session.date).toLocaleDateString('zh-CN');
