@@ -151,6 +151,7 @@ export function ClientsPage({
     training_age_months: '',
   });
   const [showTrainingHistory, setShowTrainingHistory] = useState(false);
+  const [showTodayWorkstation, setShowTodayWorkstation] = useState(true);
 
   const tierOrder: MembershipLevel[] = ['standard', 'advanced', 'professional', 'elite'];
 
@@ -346,6 +347,28 @@ export function ClientsPage({
     { key: 'recovery', value: score.breakdown.recovery, max: dimMaxMap.recovery, available: score.available.recovery },
     { key: 'execution', value: score.breakdown.execution, max: dimMaxMap.execution, available: score.available.execution },
   ] as const;
+
+  // ── 今日工作台逻辑 ──
+  const todayStr = new Date().toLocaleDateString('zh-CN');
+  const todaySessions = useMemo(() => {
+    const sessionsWithClients = clients.map(client => {
+      const todaySession = (client.sessions || []).find(s => new Date(s.date).toLocaleDateString('zh-CN') === todayStr);
+      return todaySession ? { client, session: todaySession } : null;
+    }).filter(Boolean) as Array<{ client: Client; session: any }>;
+    return sessionsWithClients;
+  }, [clients, todayStr]);
+
+  const markTodaySession = (clientId: string) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client || !client.sessions) return;
+    const updatedClient = {
+      ...client,
+      sessions: [...client.sessions, { date: todayStr, rpe: 0, performance: '', note: '', price: 0, week: client.current_week || 1, level: 1, day: '标记课程', duration: 0 }],
+    };
+    const updatedClients = clients.map(c => c.id === clientId ? updatedClient : c);
+    setClients(updatedClients);
+    saveClients(updatedClients);
+  };
 
   return (
     <div className="clients-premium">
@@ -592,6 +615,176 @@ export function ClientsPage({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* 今日工作台 */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <button
+            type="button"
+            onClick={() => setShowTodayWorkstation(!showTodayWorkstation)}
+            style={{
+              cursor: 'pointer',
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              fontSize: 14,
+              fontWeight: 700,
+              color: '#1f2435',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              justifyContent: 'space-between',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>{showTodayWorkstation ? '▾' : '▸'}</span>
+              • TODAY'S WORKSTATION（今日工作台）
+            </div>
+            {todaySessions.length > 0 && (
+              <div style={{
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: '#e3f2fd',
+                color: '#1565c0',
+                fontSize: 11,
+                fontWeight: 700,
+              }}>
+                {todaySessions.length}
+              </div>
+            )}
+          </button>
+
+          {showTodayWorkstation && (
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {todaySessions.length === 0 ? (
+                <div style={{
+                  padding: 16,
+                  borderRadius: 10,
+                  border: '1px solid rgba(216,221,236,.75)',
+                  background: 'rgba(255,255,255,.55)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}>
+                  <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+                    今日暂无课程 · 可手动标记今天上课的客户
+                  </div>
+                  {clients.map(client => (
+                    <button
+                      key={client.id}
+                      type="button"
+                      onClick={() => markTodaySession(client.id)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(216,221,236,.75)',
+                        background: 'rgba(255,255,255,.55)',
+                        color: '#475569',
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                      }}
+                    >
+                      标记 {client.name} 今日上课
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                todaySessions.map(({ client, session }) => {
+                  const clientSessions = client.sessions || [];
+                  const lastSessionIdx = clientSessions.length - 2;
+                  const lastSession = lastSessionIdx >= 0 ? clientSessions[lastSessionIdx] : null;
+                  const daysSinceLastSession = lastSession
+                    ? Math.floor((new Date().getTime() - new Date(lastSession.date).getTime()) / (1000 * 60 * 60 * 24))
+                    : null;
+
+                  const selectedBlock = (client.blocks || [])[0];
+                  const selectedWeek = selectedBlock ? (selectedBlock.training_weeks || [])[0] : null;
+                  const selectedDay = selectedWeek ? (selectedWeek.days || []).find(d => d.day === session.day) : null;
+                  const hasPlan = selectedDay && Array.isArray((selectedDay as any).modules) && (selectedDay as any).modules.length > 0;
+
+                  const tier = resolveMembershipLevel(client);
+                  const rpe = lastSession?.rpe || 0;
+                  let rpeColor = '#2e7d32';
+                  if (rpe >= 8) rpeColor = '#c62828';
+                  else if (rpe >= 6) rpeColor = '#1565c0';
+
+                  return (
+                    <div
+                      key={client.id}
+                      style={{
+                        padding: 12,
+                        borderRadius: 10,
+                        border: '1px solid rgba(216,221,236,.75)',
+                        background: 'rgba(255,255,255,.55)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2435' }}>{client.name}</div>
+                          <div style={{
+                            padding: '2px 6px',
+                            borderRadius: 3,
+                            background: tierMeta[tier].soft,
+                            color: tierMeta[tier].accent,
+                            fontSize: 9,
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap',
+                          }}>
+                            {tierMeta[tier].cn}
+                          </div>
+                        </div>
+                      </div>
+
+                      {daysSinceLastSession !== null && (
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                          距上次上课 {daysSinceLastSession} 天 · 上次RPE <span style={{ color: rpeColor, fontWeight: 700 }}>{rpe}</span>
+                        </div>
+                      )}
+
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '6px 8px',
+                        borderRadius: 6,
+                        background: hasPlan ? 'rgba(34,197,94,.1)' : 'rgba(245,158,11,.1)',
+                        color: hasPlan ? '#16a34a' : '#f59e0b',
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}>
+                        {hasPlan ? '✓ 已备课' : '⚠ 待生成'}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // trigger onOpenSession if available from parent
+                          // For now just select the client
+                          setActiveId(client.id);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: 8,
+                          border: 'none',
+                          background: '#7C3AED',
+                          color: '#fff',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        开始上课
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
 
         {/* 训练历史区块 */}
