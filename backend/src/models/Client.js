@@ -15,7 +15,7 @@ const ClientSchema = new mongoose.Schema({
   injury: { type: String, default: '' },
   
   // 教练关联
-  coachCode: { type: String, required: true },
+  coachCode: { type: String, required: false, default: '' },
   
   // 训练数据
   blocks: [{ type: mongoose.Schema.Types.Mixed }],

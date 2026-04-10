@@ -34,7 +34,12 @@ export async function connectMongo() {
   });
 
   mongoose.connection.on('disconnected', () => {
-    console.warn('[backend] MongoDB disconnected');
+    console.warn('[backend] MongoDB disconnected, attempting to reconnect in 5s...');
+    setTimeout(() => {
+      connectMongo().catch(err => {
+        console.error('[backend] Reconnection attempt failed:', err);
+      });
+    }, 5000);
   });
 
   // 优雅关闭

@@ -1332,29 +1332,30 @@ export function PlanningPage({
 
     try {
       // 注入 id 和 weight 字段
-      const modules: PlanModule[] = (aiPreviewData.modules || []).map((m: any) => ({
+      const previewModules = Array.isArray(aiPreviewData?.modules) ? aiPreviewData.modules : [];
+      const modules: PlanModule[] = previewModules.map((m: any) => ({
         ...m,
         id: genId('mod'),
-        exercises: (m.exercises || []).map((ex: any) => ({
+        exercises: (Array.isArray(m?.exercises) ? m.exercises : []).map((ex: any) => ({
           ...ex,
           id: genId('ex'),
-          weight: ex.weight || '',
+          weight: ex?.weight || '',
         })),
       }));
 
       const next: Client = {
         ...client,
-        blocks: (client.blocks || []).map(b =>
-          b.id !== selectedBlock.id ? b : {
+        blocks: (Array.isArray(client.blocks) ? client.blocks : []).map(b =>
+          b?.id !== selectedBlock?.id ? b : {
             ...b,
-            training_weeks: (b.training_weeks || []).map(w =>
-              w.id !== selectedWeek.id ? w : {
+            training_weeks: (Array.isArray(b?.training_weeks) ? b.training_weeks : []).map(w =>
+              w?.id !== selectedWeek?.id ? w : {
                 ...w,
-                days: (w.days || []).map(d =>
-                  d.id !== selectedDay.id ? d : {
+                days: (Array.isArray(w?.days) ? w.days : []).map(d =>
+                  d?.id !== selectedDay?.id ? d : {
                     ...d,
-                    name: aiPreviewData.session_name || d.name,
-                    session_name: aiPreviewData.session_name,
+                    name: aiPreviewData?.session_name || d?.name,
+                    session_name: aiPreviewData?.session_name,
                     modules,
                   }
                 ),
@@ -1366,29 +1367,34 @@ export function PlanningPage({
       persistClient(next);
       setGeneratedPreview({ type: null, data: null });
     } catch (e: any) {
-      console.error('[保存] 保存失败:', e);
+      console.error('[PlanningPage] 保存日计划失败:', e);
       setError('保存失败：' + (e?.message || String(e)));
     }
   };
 
   // 确认应用完整规划预览
   const confirmSaveFullPlanFromPreview = () => {
-    if (!aiPreviewData?.blocks || !client) return;
+    if (!client) return;
 
     try {
-      const next: Client = { ...client, blocks: aiPreviewData.blocks };
+      const previewBlocks = Array.isArray(aiPreviewData?.blocks) ? aiPreviewData.blocks : [];
+      if (previewBlocks.length === 0) return;
+
+      const next: Client = { ...client, blocks: previewBlocks };
       persistClient(next);
 
-      if (aiPreviewData.blocks.length > 0) {
-        setSelectedBlockId(aiPreviewData.blocks[0].id);
-        const wk = aiPreviewData.blocks[0].training_weeks?.[0];
+      const firstBlock = previewBlocks[0];
+      if (firstBlock?.id) {
+        setSelectedBlockId(firstBlock.id);
+        const wk = Array.isArray(firstBlock?.training_weeks) ? firstBlock.training_weeks[0] : null;
         setSelectedWeekId(wk?.id || null);
-        setSelectedDayId(wk?.days?.[0]?.id || null);
+        const day = Array.isArray(wk?.days) ? wk.days[0] : null;
+        setSelectedDayId(day?.id || null);
       }
 
       setGeneratedPreview({ type: null, data: null });
     } catch (e: any) {
-      console.error('[保存] 完整规划保存失败:', e);
+      console.error('[PlanningPage] 完整规划保存失败:', e);
       setError('保存失败：' + (e?.message || String(e)));
     }
   };
@@ -1397,12 +1403,13 @@ export function PlanningPage({
   const applyWeekPlanPreview = (previewData: any) => {
     if (!client || !selectedWeek || !selectedBlock) return;
 
-    const outlineByDayKey: Record<string, { day_focus: string; session_name: string }> = {};
-    const dayPlans: Record<string, any> = {};
+    try {
+      const outlineByDayKey: Record<string, { day_focus: string; session_name: string }> = {};
+      const dayPlans: Record<string, any> = {};
 
-    // 构建 outline 和 dayPlans 的映射
-    if (Array.isArray(previewData.days)) {
-      previewData.days.forEach((d: any, idx: number) => {
+      // 构建 outline 和 dayPlans 的映射
+      const previewDays = Array.isArray(previewData?.days) ? previewData.days : [];
+      previewDays.forEach((d: any, idx: number) => {
         const k = String(d?.day_key || d?.dayKey || d?.day || d?.day_of_week || '');
         if (k) {
           outlineByDayKey[k] = {
@@ -1413,39 +1420,42 @@ export function PlanningPage({
           dayPlans[`day${idx + 1}`] = d;
         }
       });
-    }
 
-    const next: Client = {
-      ...client,
-      blocks: (client.blocks || []).map(b =>
-        b.id !== selectedBlock.id ? b : {
-          ...b,
-          training_weeks: (b.training_weeks || []).map(w =>
-            w.id !== selectedWeek.id ? w : {
-              ...w,
-              // 保存 week_theme 和 week_brief（如果返回了这些字段）
-              ...(previewData.week_theme && { week_theme: previewData.week_theme }),
-              ...(previewData.week_brief && { week_brief: previewData.week_brief }),
-              days: (w.days || []).map((d, di) => {
-                const plan = dayPlans[d.day] || dayPlans[`day${di + 1}`] || null;
-                if (!plan) return d;
-                return {
-                  ...d,
-                  name: plan.session_name || outlineByDayKey[String(d.day)]?.session_name || d.name,
-                  focus: outlineByDayKey[String(d.day)]?.day_focus || d.focus,
-                  modules: (plan.modules || []).map((m: any) => ({
-                    ...m, id: genId('mod'),
-                    exercises: (m.exercises || []).map((ex: any) => ({ ...ex, id: genId('ex'), weight: '' })),
-                  })),
-                };
-              }),
-            }
-          ),
-        }
-      ),
-    };
-    persistClient(next);
-    setGeneratedPreview({ type: null, data: null });
+      const next: Client = {
+        ...client,
+        blocks: (client.blocks || []).map(b =>
+          b.id !== selectedBlock.id ? b : {
+            ...b,
+            training_weeks: (b.training_weeks || []).map(w =>
+              w.id !== selectedWeek.id ? w : {
+                ...w,
+                // 保存 week_theme 和 week_brief（如果返回了这些字段）
+                ...(previewData?.week_theme && { week_theme: previewData.week_theme }),
+                ...(previewData?.week_brief && { week_brief: previewData.week_brief }),
+                days: (w.days || []).map((d, di) => {
+                  const plan = dayPlans[d?.day || `day${di + 1}`] || null;
+                  if (!plan) return d;
+                  return {
+                    ...d,
+                    name: plan.session_name || outlineByDayKey[String(d?.day)]?.session_name || d?.name,
+                    focus: outlineByDayKey[String(d?.day)]?.day_focus || d?.focus,
+                    modules: (plan.modules || []).map((m: any) => ({
+                      ...m, id: genId('mod'),
+                      exercises: (Array.isArray(m?.exercises) ? m.exercises : []).map((ex: any) => ({ ...ex, id: genId('ex'), weight: '' })),
+                    })),
+                  };
+                }),
+              }
+            ),
+          }
+        ),
+      };
+      persistClient(next);
+      setGeneratedPreview({ type: null, data: null });
+    } catch (e: any) {
+      console.error('[PlanningPage] 应用周计划预览失败:', e);
+      setError('应用周计划失败：' + (e?.message || String(e)));
+    }
   };
 
   // ── AI 生成周计划 ─────────────────────────────────────────────
@@ -2803,9 +2813,14 @@ export function PlanningPage({
               <button
                 type="button"
                 onClick={() => {
-                  if (aiPreviewMode === 'day') confirmSaveDayPlanFromPreview();
-                  else if (aiPreviewMode === 'week') applyWeekPlanPreview(aiPreviewData);
-                  else if (aiPreviewMode === 'full') confirmSaveFullPlanFromPreview();
+                  try {
+                    if (aiPreviewMode === 'day') confirmSaveDayPlanFromPreview();
+                    else if (aiPreviewMode === 'week') applyWeekPlanPreview(aiPreviewData);
+                    else if (aiPreviewMode === 'full') confirmSaveFullPlanFromPreview();
+                  } catch (e: any) {
+                    console.error('[PlanningPage] 确认应用失败:', e);
+                    setError('应用失败：' + (e?.message || String(e)));
+                  }
                 }}
                 style={{
                   padding: '8px 16px',
