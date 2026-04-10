@@ -128,7 +128,7 @@ function extractLiftRatios(client: Client): { squat: number; deadlift: number } 
 }
 
 export function ClientsPage({
-  onSelect,
+  onSelect: _onSelect,
   selectedClientId,
   coachCode,
 }: {
@@ -238,7 +238,7 @@ export function ClientsPage({
     const updatedClients = clients.map((c) => (c.id === next.id ? next : c));
     setClients(updatedClients);
     saveClients(updatedClients);
-    void saveClientAsync(next);
+    saveClientAsync(next);  // 保证异步保存完成
   };
 
   const activeClient = useMemo(() => clients.find((c) => c.id === activeId) || clients[0] || null, [clients, activeId]);
@@ -957,10 +957,17 @@ export function ClientsPage({
                         <Button
                           type="button"
                           className="w-full tier-open-btn"
-                          onClick={() => onSelect(activeClient.id)}
+                          onClick={() => {
+                            const currentIndex = tierOrder.indexOf(key);
+                            if (currentIndex < tierOrder.length - 1) {
+                              switchTier(tierOrder[currentIndex + 1]);
+                            }
+                          }}
                           style={{ marginTop: 14 }}
                         >
-                          打开客户训练规划
+                          {tierOrder.indexOf(key) < tierOrder.length - 1
+                            ? `升级至 ${tierMeta[tierOrder[tierOrder.indexOf(key) + 1]].cn}`
+                            : '已达最高档位'}
                         </Button>
                       </div>
                     )}
