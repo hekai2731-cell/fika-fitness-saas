@@ -54,6 +54,28 @@ export type Client = {
   plan_updated_at?: string;
   plan_published_at?: string;
   sessions?: ClientSession[];
+  bodyMetrics?: {
+    bf_pct?: number;
+    smm_pct?: number;
+    waist_cm?: number;
+    rhr?: number;
+    sleep_hours?: number;
+    training_age_months?: number;
+  };
+  goal_type?: 'muscle_gain' | 'fat_loss' | 'performance' | 'rehabilitation';
+  injury_detail?: {
+    area?: string;
+    level?: 'mild' | 'moderate' | 'avoid';
+    forbidden_moves?: string;
+  };
+  assessments?: Array<{
+    date: string;
+    weight?: number;
+    bf_pct?: number;
+    smm_pct?: number;
+    rhr?: number;
+    score_snapshot?: number;
+  }>;
 };
 
 export function getLevelInfo(level: number): { price: number } {

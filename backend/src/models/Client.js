@@ -26,6 +26,13 @@ const ClientSchema = new mongoose.Schema({
   // 评估数据
   metrics: { type: mongoose.Schema.Types.Mixed },
   assessments: { type: mongoose.Schema.Types.Mixed },
+  bodyMetrics: { type: mongoose.Schema.Types.Mixed },
+  goal_type: { type: String, enum: ['muscle_gain', 'fat_loss', 'performance', 'rehabilitation'] },
+  injury_detail: {
+    area: { type: String },
+    level: { type: String, enum: ['mild', 'moderate', 'avoid'] },
+    forbidden_moves: { type: String },
+  },
   
   // 发布相关
   published_blocks: [{ type: mongoose.Schema.Types.Mixed }],

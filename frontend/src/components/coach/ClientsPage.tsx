@@ -2,9 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import type { Client } from '@/lib/db';
-import { loadClients, saveClients } from '@/lib/store';
+import { calcBodyAssetScore } from '@/lib/bodyAssetScore';
+import { loadClients, saveClient as saveClientAsync, saveClients } from '@/lib/store';
 
 type MembershipLevel = 'standard' | 'advanced' | 'professional' | 'elite';
+
+type GoalType = NonNullable<Client['goal_type']>;
+type InjuryLevel = NonNullable<NonNullable<Client['injury_detail']>['level']>;
 
 function initials(name: string) {
   const s = (name || '').trim();
@@ -47,6 +51,81 @@ const tierMeta: Record<MembershipLevel, { label: string; cn: string; accent: str
   },
 };
 
+const goalTypeOptions: Array<{ value: GoalType; label: string }> = [
+  { value: 'muscle_gain', label: '增肌' },
+  { value: 'fat_loss', label: '减脂' },
+  { value: 'performance', label: '提升运动表现' },
+  { value: 'rehabilitation', label: '功能性康复' },
+];
+
+const injuryLevelOptions: Array<{ value: InjuryLevel; label: string }> = [
+  { value: 'mild', label: '轻度' },
+  { value: 'moderate', label: '中度' },
+  { value: 'avoid', label: '需回避' },
+];
+
+const tierStandardMap: Record<MembershipLevel, { bf: string; rhr: string; strength: string }> = {
+  standard: { bf: '男 15-22% / 女 23-30%', rhr: '男 ≤ 68 / 女 ≤ 72', strength: '深蹲≥0.8xBW, 硬拉≥1.0xBW' },
+  advanced: { bf: '男 12-19% / 女 20-27%', rhr: '男 ≤ 65 / 女 ≤ 70', strength: '深蹲≥1.0xBW, 硬拉≥1.2xBW' },
+  professional: { bf: '男 10-18% / 女 18-26%', rhr: '男 ≤ 62 / 女 ≤ 68', strength: '深蹲≥1.2xBW, 硬拉≥1.5xBW' },
+  elite: { bf: '男 8-15% / 女 16-24%', rhr: '男 ≤ 58 / 女 ≤ 64', strength: '深蹲≥1.4xBW, 硬拉≥1.8xBW' },
+};
+
+const dimLabelMap = {
+  bodyComp: '体成分',
+  performance: '运动表现',
+  nutrition: '营养合规',
+  recovery: '恢复质量',
+  execution: '执行率',
+} as const;
+
+const dimMaxMap = {
+  bodyComp: 20,
+  performance: 25,
+  nutrition: 20,
+  recovery: 20,
+  execution: 15,
+} as const;
+
+function toNum(input: string): number | undefined {
+  const n = Number(input);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function parseLiftWeight(raw: any): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  const n = Number(String(raw || '').replace(/[^\d.]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function extractLiftRatios(client: Client): { squat: number; deadlift: number } {
+  const sessions = Array.isArray(client.sessions) ? client.sessions : [];
+  const bw = Number(client.weight || 0);
+  if (bw <= 0) return { squat: 0, deadlift: 0 };
+
+  let maxSquat = 0;
+  let maxDeadlift = 0;
+
+  sessions.forEach((s: any) => {
+    const modules = Array.isArray(s?.modules) ? s.modules : [];
+    modules.forEach((m: any) => {
+      const exs = Array.isArray(m?.exercises) ? m.exercises : [];
+      exs.forEach((ex: any) => {
+        const name = String(ex?.name || '').toLowerCase();
+        const w = parseLiftWeight(ex?.weight);
+        if (!w) return;
+        if (name.includes('squat') || name.includes('深蹲')) maxSquat = Math.max(maxSquat, w);
+        if (name.includes('deadlift') || name.includes('硬拉')) maxDeadlift = Math.max(maxDeadlift, w);
+      });
+    });
+  });
+
+  return {
+    squat: maxSquat > 0 ? Number((maxSquat / bw).toFixed(2)) : 0,
+    deadlift: maxDeadlift > 0 ? Number((maxDeadlift / bw).toFixed(2)) : 0,
+  };
+}
+
 export function ClientsPage({
   onSelect,
   selectedClientId,
@@ -57,17 +136,16 @@ export function ClientsPage({
   const [clients, setClients] = useState<Client[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [metricLabels, setMetricLabels] = useState<string[]>(['体重 / WEIGHT', '身高 / HEIGHT', '年龄 / AGE', '体脂指数 / BMI', '肌肉量 / MUSCLE', '基础代谢 / BMR', '训练周期 / BLOCKS', '训练课次 / SESSIONS']);
-  const [assessmentTitle, setAssessmentTitle] = useState('生活习惯 / Lifestyle Habits');
-  const [assessmentItems, setAssessmentItems] = useState<Array<{ l: string; v: string }>>([
-    { l: '睡眠质量 / Sleep Quality', v: '★★★★☆' },
-    { l: '压力水平 / Stress Level', v: '中等 / MODERATE' },
-    { l: '活动水平 / Activity Level', v: '高 / HIGH' },
-    { l: '目标 / Goal', v: '' },
-    { l: '伤病情况 / Injury', v: '' },
-    { l: '健康评分 / Health Score', v: '88%' },
-  ]);
   const [editingMetric, setEditingMetric] = useState<number | null>(null);
-  const [editingAssessment, setEditingAssessment] = useState<number | null>(null);
+  const [showAssessmentForm, setShowAssessmentForm] = useState(false);
+  const [assessmentDraft, setAssessmentDraft] = useState({
+    bf_pct: '',
+    smm_pct: '',
+    waist_cm: '',
+    rhr: '',
+    sleep_hours: '',
+    training_age_months: '',
+  });
 
   const tierOrder: MembershipLevel[] = ['standard', 'advanced', 'professional', 'elite'];
 
@@ -80,15 +158,6 @@ export function ClientsPage({
     BMR: '基础代谢 / BMR',
     BLOCKS: '训练周期 / BLOCKS',
     SESSIONS: '训练课次 / SESSIONS',
-  };
-
-  const assessmentLabelMap: Record<string, string> = {
-    'Sleep Quality': '睡眠质量 / Sleep Quality',
-    'Stress Level': '压力水平 / Stress Level',
-    'Activity Level': '活动水平 / Activity Level',
-    Goal: '目标 / Goal',
-    Injury: '伤病情况 / Injury',
-    'Health Score': '健康评分 / Health Score',
   };
 
   const resolveMembershipLevel = (c: Client | null): MembershipLevel => {
@@ -122,12 +191,8 @@ export function ClientsPage({
       if (!raw) return;
       const parsed = JSON.parse(raw) as {
         metricLabels?: string[];
-        assessmentTitle?: string;
-        assessmentItems?: Array<{ l: string; v: string }>;
       };
       if (Array.isArray(parsed.metricLabels) && parsed.metricLabels.length >= 8) setMetricLabels(parsed.metricLabels.slice(0, 8));
-      if (parsed.assessmentTitle) setAssessmentTitle(parsed.assessmentTitle);
-      if (Array.isArray(parsed.assessmentItems) && parsed.assessmentItems.length >= 6) setAssessmentItems(parsed.assessmentItems.slice(0, 6));
     } catch {
       // ignore
     }
@@ -145,49 +210,15 @@ export function ClientsPage({
     if (idx === 1) updatedClient.height = numericValue ? parseFloat(numericValue) : undefined;
     if (idx === 2) updatedClient.age = numericValue ? parseInt(numericValue) : undefined;
     
-    const updatedClients = clients.map(c => c.id === activeClient.id ? updatedClient : c);
+    persistClient(updatedClient);
+  };
+
+  const persistClient = (next: Client) => {
+    const updatedClients = clients.map((c) => (c.id === next.id ? next : c));
     setClients(updatedClients);
     saveClients(updatedClients);
+    void saveClientAsync(next);
   };
-
-  
-  const handleAssessmentEdit = (idx: number, field: 'l' | 'v', value: string) => {
-    const next = [...assessmentItems];
-    if (field === 'v' && idx === 5) {
-      // 健康评分 - 只允许数字
-      const numericValue = value.replace(/[^0-9]/g, '');
-      next[idx] = { ...next[idx], [field]: numericValue + '%' };
-    } else if (field === 'v' && idx === 0) {
-      // 睡眠质量 - 星级评分
-      return; // 通过点击星星处理
-    } else {
-      next[idx] = { ...next[idx], [field]: value };
-    }
-    setAssessmentItems(next);
-  };
-
-  const saveAssessmentChanges = () => {
-    if (!activeClient) return;
-    
-    const updatedClient = { ...activeClient };
-    
-    // Save assessment data back to client data
-    // Map assessment items to client fields
-    if (assessmentItems[3]?.v) updatedClient.goal = assessmentItems[3].v; // 目标
-    if (assessmentItems[4]?.v) updatedClient.injury = assessmentItems[4].v; // 伤病情况
-    
-    const updatedClients = clients.map(c => c.id === activeClient.id ? updatedClient : c);
-    setClients(updatedClients);
-    saveClients(updatedClients);
-  };
-
-  const handleStarClick = (starIdx: number) => {
-    const stars = '★'.repeat(starIdx + 1) + '☆'.repeat(4 - starIdx);
-    handleAssessmentEdit(0, 'v', stars);
-    // Auto-save after star rating change
-    setTimeout(() => saveAssessmentChanges(), 100);
-  };
-
 
   const activeClient = useMemo(() => clients.find((c) => c.id === activeId) || clients[0] || null, [clients, activeId]);
 
@@ -196,18 +227,84 @@ export function ClientsPage({
 
   const switchTier = (nextTier: MembershipLevel) => {
     if (!activeClient) return;
-    const next = clients.map((c) => (
-      c.id === activeClient.id
-        ? { ...c, tier: tierMeta[nextTier].storeTier, membershipLevel: nextTier } as Client
-        : c
-    ));
-    setClients(next);
-    saveClients(next);
+    persistClient({ ...activeClient, tier: tierMeta[nextTier].storeTier, membershipLevel: nextTier } as Client);
+  };
+
+  const updateGoalType = (goalType: GoalType) => {
+    if (!activeClient) return;
+    const label = goalTypeOptions.find((g) => g.value === goalType)?.label || '';
+    persistClient({ ...activeClient, goal_type: goalType, goal: label || activeClient.goal } as Client);
+  };
+
+  const updateInjuryField = (patch: Partial<NonNullable<Client['injury_detail']>>) => {
+    if (!activeClient) return;
+    const nextInjury = { ...(activeClient.injury_detail || {}), ...patch };
+    const text = [nextInjury.area || '', nextInjury.level || '', nextInjury.forbidden_moves || ''].filter(Boolean).join(' / ');
+    persistClient({ ...activeClient, injury_detail: nextInjury, injury: text || activeClient.injury } as Client);
+  };
+
+  const addAssessmentRecord = () => {
+    if (!activeClient) return;
+
+    const bodyMetrics = {
+      ...(activeClient.bodyMetrics || {}),
+      bf_pct: toNum(assessmentDraft.bf_pct),
+      smm_pct: toNum(assessmentDraft.smm_pct),
+      waist_cm: toNum(assessmentDraft.waist_cm),
+      rhr: toNum(assessmentDraft.rhr),
+      sleep_hours: toNum(assessmentDraft.sleep_hours),
+      training_age_months: toNum(assessmentDraft.training_age_months),
+    };
+
+    const previewScore = calcBodyAssetScore({ ...activeClient, bodyMetrics } as Client).total;
+    const record = {
+      date: new Date().toISOString().slice(0, 10),
+      weight: activeClient.weight,
+      bf_pct: bodyMetrics.bf_pct,
+      smm_pct: bodyMetrics.smm_pct,
+      rhr: bodyMetrics.rhr,
+      score_snapshot: previewScore,
+    };
+
+    persistClient({
+      ...activeClient,
+      bodyMetrics,
+      assessments: [...(activeClient.assessments || []), record],
+    } as Client);
+
+    setShowAssessmentForm(false);
+    setAssessmentDraft({
+      bf_pct: '',
+      smm_pct: '',
+      waist_cm: '',
+      rhr: '',
+      sleep_hours: '',
+      training_age_months: '',
+    });
   };
 
   if (!activeClient) {
     return <div style={{ fontSize: 13, color: 'var(--s500)' }}>暂无客户数据</div>;
   }
+
+  const score = calcBodyAssetScore(activeClient);
+  const liftRatios = extractLiftRatios(activeClient);
+  const standards = tierStandardMap[activeTier];
+
+  const latestAssessments = [...(activeClient.assessments || [])]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 8)
+    .reverse();
+
+  const trendPoints = latestAssessments
+    .map((a) => Number(a.score_snapshot || 0))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+
+  const bfText = typeof activeClient.bodyMetrics?.bf_pct === 'number' ? `${activeClient.bodyMetrics.bf_pct}%` : '待录入';
+  const rhrText = typeof activeClient.bodyMetrics?.rhr === 'number' ? `${activeClient.bodyMetrics.rhr} bpm` : '待录入';
+  const strengthText = liftRatios.squat > 0 || liftRatios.deadlift > 0
+    ? `深蹲 ${liftRatios.squat || '--'}x / 硬拉 ${liftRatios.deadlift || '--'}x`
+    : '待录入';
 
   const metricCards = [
     { v: activeClient.weight ?? '--', unit: 'kg', tone: '#4F5BDF' },
@@ -219,6 +316,14 @@ export function ClientsPage({
     { v: (activeClient.blocks || []).length, unit: '', tone: '#5662E6' },
     { v: (activeClient.sessions || []).length, unit: '', tone: '#7A7F90' },
   ];
+
+  const scoreDims = [
+    { key: 'bodyComp', value: score.breakdown.bodyComp, max: dimMaxMap.bodyComp, available: score.available.bodyComp },
+    { key: 'performance', value: score.breakdown.performance, max: dimMaxMap.performance, available: score.available.performance },
+    { key: 'nutrition', value: score.breakdown.nutrition, max: dimMaxMap.nutrition, available: score.available.nutrition },
+    { key: 'recovery', value: score.breakdown.recovery, max: dimMaxMap.recovery, available: score.available.recovery },
+    { key: 'execution', value: score.breakdown.execution, max: dimMaxMap.execution, available: score.available.execution },
+  ] as const;
 
   return (
     <div className="clients-premium">
@@ -294,111 +399,159 @@ export function ClientsPage({
             ))}
           </div>
 
-          <div className="section-cap" style={{ marginTop: 18 }}>• ASSESSMENT & QUESTIONNAIRE（问卷筛查）</div>
+          <div className="section-cap" style={{ marginTop: 18 }}>• BODY ASSET SCORE（身体资产评分）</div>
           <div className="assessment-card">
-            <div 
-              className="assessment-title"
-              onDoubleClick={() => setEditingAssessment(-1)}
-            >
-              {editingAssessment === -1 ? (
-                <input
-                  className="assessment-input"
-                  value={assessmentTitle}
-                  onChange={(e) => setAssessmentTitle(e.target.value)}
-                  onBlur={() => {
-                    setEditingAssessment(null);
-                    saveAssessmentChanges();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      setEditingAssessment(null);
-                      saveAssessmentChanges();
-                    }
-                  }}
-                  autoFocus
-                />
-              ) : (
-                assessmentTitle === 'Lifestyle Habits（生活习惯）' ? '生活习惯 / Lifestyle Habits' : assessmentTitle
-              )}
+            <div className="assessment-title" style={{ fontSize: 22 }}>
+              {Object.values(score.available).some(Boolean) ? `${score.total} 分` : '评分待完善'}
             </div>
-            <div className="assessment-grid">
-              {assessmentItems.map((it, idx) => (
-                <div className="habit-item" key={`q-${idx}`}>
-                  <span 
-                    onDoubleClick={() => setEditingAssessment(idx * 2)}
-                  >
-                    {editingAssessment === idx * 2 ? (
-                      <input
-                        className="habit-input"
-                        value={it.l}
-                        onChange={(e) => handleAssessmentEdit(idx, 'l', e.target.value)}
-                        onBlur={() => {
-                          setEditingAssessment(null);
-                          saveAssessmentChanges();
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            setEditingAssessment(null);
-                            saveAssessmentChanges();
-                          }
-                        }}
-                        autoFocus
-                      />
-                    ) : (
-                      assessmentLabelMap[it.l] || it.l
-                    )}
-                  </span>
-                  <b 
-                    style={idx === 5 ? { color: tier.accent } : undefined}
-                    onDoubleClick={() => {
-                      if (idx !== 0) { // 星级评分通过点击处理
-                        setEditingAssessment(idx * 2 + 1);
-                      }
-                    }}
-                  >
-                    {editingAssessment === idx * 2 + 1 ? (
-                      <input
-                        className="habit-input"
-                        value={idx === 5 ? it.v.replace('%', '') : it.v}
-                        onChange={(e) => handleAssessmentEdit(idx, 'v', e.target.value)}
-                        onBlur={() => {
-                          setEditingAssessment(null);
-                          saveAssessmentChanges();
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            setEditingAssessment(null);
-                            saveAssessmentChanges();
-                          }
-                        }}
-                        autoFocus
-                        style={{ width: idx === 5 ? '40px' : '100%' }}
-                      />
-                    ) : idx === 0 ? (
-                      // 睡眠质量 - 星级评分
-                      <span style={{ cursor: 'pointer' }}>
-                        {it.v.split('').map((star, starIdx) => (
-                          <span
-                            key={starIdx}
-                            onClick={() => handleStarClick(starIdx)}
-                            style={{ 
-                              cursor: 'pointer',
-                              color: star === '★' ? '#fbbf24' : '#d1d5db',
-                              fontSize: '14px'
-                            }}
-                          >
-                            {star}
-                          </span>
-                        ))}
-                      </span>
-                    ) : (
-                      idx === 3 ? (it.v || activeClient.goal || '体态与增肌并进') : 
-                      idx === 4 ? (it.v || activeClient.injury || '无明显损伤') : 
-                      it.v
-                    )}
-                  </b>
+            <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+              {scoreDims.map((dim) => {
+                const pct = dim.available ? Math.round((dim.value / dim.max) * 100) : 0;
+                return (
+                  <div key={dim.key}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#55607a', fontWeight: 700 }}>
+                      <span>{dimLabelMap[dim.key]}</span>
+                      <span>{dim.available ? `${dim.value.toFixed(1)} / ${dim.max}` : '待录入'}</span>
+                    </div>
+                    <div className="score-bar-wrap">
+                      <div className={`score-bar-fill ${dim.available ? '' : 'muted'}`} style={{ width: `${pct}%` }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="score-gap-tip">
+              {score.tier === 'ultra'
+                ? '已达到 Ultra 档标准，继续保持训练质量与恢复节奏。'
+                : `距 ${score.tier === 'standard' ? 'Pro' : 'Ultra'} 档差 ${score.gap_to_next} 分，优先提升：${score.weakest}`}
+            </div>
+
+            {score.tier === 'pro' && (
+              <div className="tier-compare-list" style={{ marginTop: 10 }}>
+                <div>体脂率：当前 {bfText}，标准 {standards.bf}</div>
+                <div>静息心率：当前 {rhrText}，标准 {standards.rhr}</div>
+                <div>力量基准：当前 {strengthText}，标准 {standards.strength}</div>
+              </div>
+            )}
+
+            {score.tier === 'ultra' && (
+              <div className="tier-compare-list" style={{ marginTop: 10 }}>
+                <div>深蹲 / 体重：{liftRatios.squat > 0 ? `${liftRatios.squat}x` : '待录入'}</div>
+                <div>硬拉 / 体重：{liftRatios.deadlift > 0 ? `${liftRatios.deadlift}x` : '待录入'}</div>
+              </div>
+            )}
+          </div>
+
+          <div className="section-cap" style={{ marginTop: 18 }}>• ASSESSMENTS（体测记录）</div>
+          <div className="assessment-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 800, color: '#1f2435' }}>体测记录</div>
+              <Button type="button" className="copy-edit-btn" onClick={() => setShowAssessmentForm((v) => !v)}>
+                + 添加体测记录
+              </Button>
+            </div>
+
+            {showAssessmentForm && (
+              <div className="assessment-form-grid">
+                <input className="assessment-input" placeholder="体脂率 %" value={assessmentDraft.bf_pct} onChange={(e) => setAssessmentDraft((p) => ({ ...p, bf_pct: e.target.value }))} />
+                <input className="assessment-input" placeholder="骨骼肌率 %" value={assessmentDraft.smm_pct} onChange={(e) => setAssessmentDraft((p) => ({ ...p, smm_pct: e.target.value }))} />
+                <input className="assessment-input" placeholder="腰围 cm" value={assessmentDraft.waist_cm} onChange={(e) => setAssessmentDraft((p) => ({ ...p, waist_cm: e.target.value }))} />
+                <input className="assessment-input" placeholder="静息心率 bpm" value={assessmentDraft.rhr} onChange={(e) => setAssessmentDraft((p) => ({ ...p, rhr: e.target.value }))} />
+                <input className="assessment-input" placeholder="睡眠时长 h/晚" value={assessmentDraft.sleep_hours} onChange={(e) => setAssessmentDraft((p) => ({ ...p, sleep_hours: e.target.value }))} />
+                <input className="assessment-input" placeholder="训练年限（月）" value={assessmentDraft.training_age_months} onChange={(e) => setAssessmentDraft((p) => ({ ...p, training_age_months: e.target.value }))} />
+                <div style={{ gridColumn: '1/-1', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <Button type="button" variant="outline" onClick={() => setShowAssessmentForm(false)}>取消</Button>
+                  <Button type="button" onClick={addAssessmentRecord}>保存记录</Button>
+                </div>
+              </div>
+            )}
+
+            <div className="assessment-history-list">
+              {(activeClient.assessments || []).slice().reverse().map((a, idx) => (
+                <div className="assessment-item-row" key={`${a.date}-${idx}`}>
+                  <span>{a.date}</span>
+                  <span>体脂 {typeof a.bf_pct === 'number' ? `${a.bf_pct}%` : '--'}</span>
+                  <span>骨骼肌 {typeof a.smm_pct === 'number' ? `${a.smm_pct}%` : '--'}</span>
+                  <span>RHR {typeof a.rhr === 'number' ? `${a.rhr}` : '--'}</span>
+                  <span>评分 {typeof a.score_snapshot === 'number' ? a.score_snapshot : '--'}</span>
                 </div>
               ))}
+              {(!activeClient.assessments || activeClient.assessments.length === 0) && (
+                <div style={{ color: '#7a839c', fontSize: 12 }}>暂无体测记录</div>
+              )}
+            </div>
+
+            {(activeTier === 'professional' || activeTier === 'elite') && trendPoints.length > 1 && (
+              <div className="trend-chart-box">
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#55607a' }}>近 8 周评分趋势</div>
+                <svg viewBox="0 0 260 80" style={{ width: '100%', height: 90 }}>
+                  {trendPoints.map((p, i) => {
+                    if (i === 0) return null;
+                    const prev = trendPoints[i - 1];
+                    const x1 = ((i - 1) / (trendPoints.length - 1)) * 250 + 5;
+                    const x2 = (i / (trendPoints.length - 1)) * 250 + 5;
+                    const y1 = 75 - (prev / 100) * 65;
+                    const y2 = 75 - (p / 100) * 65;
+                    return <line key={`line-${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#5d66ed" strokeWidth="2" />;
+                  })}
+                  {trendPoints.map((p, i) => {
+                    const x = (i / (trendPoints.length - 1)) * 250 + 5;
+                    const y = 75 - (p / 100) * 65;
+                    return <circle key={`dot-${i}`} cx={x} cy={y} r="3" fill="#5d66ed" />;
+                  })}
+                </svg>
+              </div>
+            )}
+          </div>
+
+          <div className="section-cap" style={{ marginTop: 18 }}>• ASSESSMENT & QUESTIONNAIRE（问卷筛查）</div>
+          <div className="assessment-card">
+            <div className="assessment-grid">
+              <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                <span>目标 / Goal</span>
+                <select
+                  className="assessment-input"
+                  value={activeClient.goal_type || 'muscle_gain'}
+                  onChange={(e) => updateGoalType(e.target.value as GoalType)}
+                >
+                  {goalTypeOptions.map((g) => (
+                    <option key={g.value} value={g.value}>{g.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                <span>受伤部位</span>
+                <input
+                  className="assessment-input"
+                  value={activeClient.injury_detail?.area || ''}
+                  onChange={(e) => updateInjuryField({ area: e.target.value })}
+                  placeholder="如：腰椎、肩峰"
+                />
+              </div>
+
+              <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                <span>程度</span>
+                <select
+                  className="assessment-input"
+                  value={activeClient.injury_detail?.level || 'mild'}
+                  onChange={(e) => updateInjuryField({ level: e.target.value as InjuryLevel })}
+                >
+                  {injuryLevelOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                <span>禁忌动作</span>
+                <input
+                  className="assessment-input"
+                  value={activeClient.injury_detail?.forbidden_moves || ''}
+                  onChange={(e) => updateInjuryField({ forbidden_moves: e.target.value })}
+                  placeholder="如：过顶推举、深度屈髋"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -429,11 +582,12 @@ export function ClientsPage({
                         <div className="tier-feature-title">{item.cn} / {item.label} ●</div>
                         <div style={{ fontSize: 30 }}>◈</div>
                       </div>
-                      <ul className="feature-list">
-                        <li>24/7 Priority Support</li>
-                        <li>Advanced Biometric Tracking</li>
-                        <li>Personal Nutrition Concierge</li>
-                      </ul>
+                      <div className="tier-compare-list">
+                        <div>体脂率标准：{standards.bf} ｜ 当前：{bfText}</div>
+                        <div>心率目标：{standards.rhr} ｜ 当前：{rhrText}</div>
+                        <div>力量基准：{standards.strength} ｜ 当前：{strengthText}</div>
+                        <div>{score.tier === 'ultra' ? '已达 Ultra 档。' : `距下一档差 ${score.gap_to_next} 分，建议优先提升 ${score.weakest}`}</div>
+                      </div>
                       <Button
                         type="button"
                         className="w-full tier-open-btn"
@@ -613,6 +767,65 @@ export function ClientsPage({
           font-size: 16px;
           font-weight: 800;
           height: 36px;
+        }
+
+        .clients-premium .score-bar-wrap {
+          margin-top: 6px;
+          height: 8px;
+          border-radius: 999px;
+          background: rgba(157, 167, 194, .26);
+          overflow: hidden;
+        }
+
+        .clients-premium .score-bar-fill {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #5d66ed, #7f8bff);
+          transition: width .24s ease;
+        }
+
+        .clients-premium .score-bar-fill.muted {
+          background: rgba(148, 163, 184, .45);
+        }
+
+        .clients-premium .score-gap-tip {
+          margin-top: 12px;
+          font-size: 12px;
+          color: #55607a;
+          font-weight: 700;
+        }
+
+        .clients-premium .assessment-form-grid {
+          margin-top: 10px;
+          display: grid;
+          gap: 8px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .clients-premium .assessment-history-list {
+          margin-top: 10px;
+          display: grid;
+          gap: 6px;
+        }
+
+        .clients-premium .assessment-item-row {
+          border-radius: 10px;
+          border: 1px solid rgba(216,221,236,.6);
+          background: rgba(255,255,255,.6);
+          padding: 8px 10px;
+          font-size: 12px;
+          color: #4e5873;
+          display: grid;
+          grid-template-columns: 1.1fr repeat(4, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .clients-premium .trend-chart-box {
+          margin-top: 12px;
+          border-radius: 12px;
+          border: 1px solid rgba(216,221,236,.64);
+          background: rgba(255,255,255,.68);
+          padding: 10px;
         }
 
         .clients-premium .assessment-grid {
@@ -817,9 +1030,8 @@ export function ClientsPage({
           text-shadow: 0 0 14px rgba(var(--tone-rgb), .34);
         }
 
-        .clients-premium .feature-list {
+        .clients-premium .tier-compare-list {
           margin-top: 10px;
-          padding-left: 16px;
           display: grid;
           gap: 6px;
           font-size: 12px;
