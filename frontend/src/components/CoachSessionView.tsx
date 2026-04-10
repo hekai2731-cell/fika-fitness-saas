@@ -29,6 +29,7 @@ interface Exercise {
   cue?: string;
   dyline?: string;
   sets: ExerciseSet[];
+  notes?: string;          // Exercise-specific notes
 }
 
 interface RecordedSession {
@@ -45,6 +46,13 @@ interface RecordedSession {
   hrMax?: number;
   hrMin?: number;
   hrZoneDurations?: Record<number, number>;
+  actual_weights?: number[];
+  coach_notes?: string;
+  post_assessment?: {
+    weight?: number;
+    body_fat_pct?: number;
+    rhr?: number;
+  };
 }
 
 interface CoachSessionViewProps {
@@ -216,18 +224,22 @@ function SetRow({
   onToggle: () => void; onDelete: () => void;
   onUpdateWeight: (v: string) => void; onUpdateReps: (v: string) => void;
 }) {
+  const [showActualFields, setShowActualFields] = useState(false);
+  const [actualWeight, setActualWeight] = useState('');
+  const [actualSets, setActualSets] = useState('');
   const state = set.done ? 'done' : isCurrent ? 'current' : 'pending';
   const bg = state === 'done' ? 'rgba(34,197,94,0.06)' : state === 'current' ? 'rgba(124,58,237,0.1)' : 'rgba(255,255,255,0.02)';
   const border = state === 'done' ? 'rgba(34,197,94,0.2)' : state === 'current' ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.06)';
   const numColor = state === 'done' ? '#4ade80' : state === 'current' ? '#a78bfa' : 'rgba(255,255,255,0.25)';
 
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 8,
-      padding: '7px 10px', borderRadius: 10,
-      background: bg, border: `1px solid ${border}`,
-      marginBottom: 5, transition: 'all 0.15s',
-    }}>
+    <>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '7px 10px', borderRadius: 10,
+        background: bg, border: `1px solid ${border}`,
+        marginBottom: 5, transition: 'all 0.15s',
+      }}>
       {/* 组号 */}
       <div style={{
         width: 20, textAlign: 'center', fontSize: 12, fontWeight: 700,
@@ -292,7 +304,69 @@ function SetRow({
         color: set.done ? '#4ade80' : isCurrent ? '#fff' : 'rgba(255,255,255,0.3)',
         transition: 'all 0.15s',
       }}>✓</button>
-    </div>
+      </div>
+
+      {/* 实际重量和组数输入 */}
+      {showActualFields && (
+        <div style={{
+          marginLeft: 20, marginRight: 20, marginBottom: 10,
+          padding: '10px 12px', borderRadius: 10,
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
+          display: 'flex', gap: 12, alignItems: 'center',
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.5)' }}>实际：</span>
+          <div style={{ display: 'flex', gap: 6, flex: 1, alignItems: 'center' }}>
+            <input
+              type="number"
+              value={actualWeight}
+              placeholder="重量"
+              onChange={e => setActualWeight(e.target.value)}
+              style={{
+                width: 58, height: 28, textAlign: 'center', fontSize: 12,
+                fontFamily: 'monospace', fontWeight: 600,
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,158,11,0.3)',
+                borderRadius: 6, color: '#fff', outline: 'none',
+              }}
+            />
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>kg ×</span>
+            <input
+              type="number"
+              value={actualSets}
+              placeholder="组"
+              onChange={e => setActualSets(e.target.value)}
+              style={{
+                width: 50, height: 28, textAlign: 'center', fontSize: 12,
+                fontFamily: 'monospace', fontWeight: 600,
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,158,11,0.3)',
+                borderRadius: 6, color: '#fff', outline: 'none',
+              }}
+            />
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>组</span>
+          </div>
+          <button
+            onClick={() => setShowActualFields(false)}
+            style={{
+              width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.06)',
+              border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 12,
+            }}
+          >×</button>
+        </div>
+      )}
+      {!showActualFields && (
+        <button
+          onClick={() => setShowActualFields(true)}
+          style={{
+            marginLeft: 20, marginRight: 20, marginBottom: 10,
+            width: 'calc(100% - 40px)', height: 28, borderRadius: 8,
+            background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)',
+            color: 'rgba(253,230,138,0.7)', fontSize: 10, fontWeight: 600,
+            cursor: 'pointer', transition: 'all 0.15s',
+          }}
+        >
+          📝 实际重量/组数
+        </button>
+      )}
+    </>
   );
 }
 
@@ -375,12 +449,16 @@ function FinishSheet({
 }: {
   duration: number;
   hrStats: ReturnType<ReturnType<typeof useHeartRate>['getStats']>;
-  onSave: (rpe: number, perf: string, note: string) => void;
+  onSave: (rpe: number, perf: string, note: string, coachNotes: string, postAssessment?: { weight?: number; body_fat_pct?: number; rhr?: number }) => void;
   onCancel: () => void;
 }) {
   const [rpe, setRpe] = useState(7);
   const [perf, setPerf] = useState('良好');
   const [note, setNote] = useState('');
+  const [coachNotes, setCoachNotes] = useState('');
+  const [weight, setWeight] = useState('');
+  const [bodyFatPct, setBodyFatPct] = useState('');
+  const [rhr, setRhr] = useState('');
 
   const RPE_HINTS: Record<number, string> = {
     5: '很轻松，下次大幅加量', 6: '比较轻松，下次可加量',
@@ -502,6 +580,71 @@ function FinishSheet({
               }}
             />
           </div>
+
+          {/* 课后教练笔记 */}
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>课后总结（选填）</div>
+            <textarea
+              value={coachNotes} onChange={e => setCoachNotes(e.target.value)}
+              rows={2} placeholder="记录客户今日表现、需要改进的地方..."
+              style={{
+                width: '100%', padding: '10px 12px', borderRadius: 10, resize: 'none',
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
+                color: '#fff', fontSize: 12, fontFamily: 'inherit', outline: 'none',
+              }}
+            />
+          </div>
+
+          {/* 身体数据更新 */}
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>体测数据（选填）</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              <div>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={weight}
+                  onChange={e => setWeight(e.target.value)}
+                  placeholder="体重"
+                  style={{
+                    width: '100%', padding: '10px 10px', borderRadius: 8, fontSize: 12,
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
+                    color: '#fff', outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginTop: 3, textAlign: 'center' }}>kg</div>
+              </div>
+              <div>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={bodyFatPct}
+                  onChange={e => setBodyFatPct(e.target.value)}
+                  placeholder="体脂率"
+                  style={{
+                    width: '100%', padding: '10px 10px', borderRadius: 8, fontSize: 12,
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
+                    color: '#fff', outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginTop: 3, textAlign: 'center' }}>%</div>
+              </div>
+              <div>
+                <input
+                  type="number"
+                  value={rhr}
+                  onChange={e => setRhr(e.target.value)}
+                  placeholder="静息心率"
+                  style={{
+                    width: '100%', padding: '10px 10px', borderRadius: 8, fontSize: 12,
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
+                    color: '#fff', outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginTop: 3, textAlign: 'center' }}>bpm</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div style={{ padding: '10px 20px 18px', display: 'flex', gap: 8 }}>
@@ -510,7 +653,14 @@ function FinishSheet({
             background: 'rgba(255,255,255,0.06)', border: 'none',
             color: 'rgba(255,255,255,0.45)', fontSize: 13, cursor: 'pointer',
           }}>取消</button>
-          <button onClick={() => onSave(rpe, perf, note)} style={{
+          <button onClick={() => {
+            const postAssessment = {
+              weight: weight ? parseFloat(weight) : undefined,
+              body_fat_pct: bodyFatPct ? parseFloat(bodyFatPct) : undefined,
+              rhr: rhr ? parseInt(rhr) : undefined,
+            };
+            onSave(rpe, perf, note, coachNotes, postAssessment);
+          }} style={{
             flex: 2, height: 44, borderRadius: 12,
             background: '#7C3AED', border: 'none',
             color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
@@ -530,6 +680,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
   const [elapsed, setElapsed] = useState(0);
   const [dyOpen, setDyOpen] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [notesOpen, setNotesOpen] = useState<number | null>(null);
   const timerRef = useRef<number | null>(null);
 
   // 心率 hook
@@ -600,6 +751,13 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
     ));
   };
 
+  // 更新动作笔记
+  const updateExerciseNotes = (notes: string) => {
+    setExercises(prev => prev.map((ex, i) =>
+      i !== curIdx ? ex : { ...ex, notes }
+    ));
+  };
+
   // 进度
   const totalSets = exercises.reduce((n, ex) => n + ex.sets.length, 0);
   const doneSets = exercises.reduce((n, ex) => n + ex.sets.filter(s => s.done).length, 0);
@@ -619,11 +777,22 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
   };
 
   // 保存
-  const handleSave = async (rpe: number, perf: string, note: string) => {
+  const handleSave = async (rpe: number, perf: string, note: string, coachNotes: string, postAssessment?: { weight?: number; body_fat_pct?: number; rhr?: number }) => {
     const hrStats = hr.getStats();
     // 根据客户档位决定费用
     const tier = client.tier || 'standard';
     const price = tier === 'pro' ? 388 : 328;
+
+    // 收集所有完成的组的重量作为 actual_weights 数组
+    const actual_weights: number[] = [];
+    exercises.forEach(ex => {
+      ex.sets.forEach(set => {
+        if (set.done && set.weight) {
+          actual_weights.push(parseFloat(set.weight));
+        }
+      });
+    });
+
     await onRecordSession({
       date: new Date().toLocaleDateString('zh-CN'),
       week: client.current_week || 1,
@@ -635,6 +804,9 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
       hrMax: hrStats?.maxBpm,
       hrMin: hrStats?.minBpm,
       hrZoneDurations: hrStats?.zoneDurations,
+      actual_weights: actual_weights.length > 0 ? actual_weights : undefined,
+      coach_notes: coachNotes,
+      post_assessment: (postAssessment?.weight || postAssessment?.body_fat_pct || postAssessment?.rhr) ? postAssessment : undefined,
     });
     hr.clearSamples();
     onClose();
@@ -841,6 +1013,43 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
             }}>
               {curEx ? (
                 <>
+                  {/* 笔记按钮 */}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                    <button
+                      onClick={() => setNotesOpen(notesOpen === curIdx ? null : curIdx)}
+                      style={{
+                        padding: '6px 10px', borderRadius: 8,
+                        background: curEx.notes ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
+                        border: curEx.notes ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.1)',
+                        color: curEx.notes ? '#4ade80' : 'rgba(255,255,255,0.5)',
+                        fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      📝 {curEx.notes ? '已记录' : '备注'}
+                    </button>
+                  </div>
+
+                  {/* 笔记输入框 */}
+                  {notesOpen === curIdx && (
+                    <div style={{
+                      padding: '10px 12px', borderRadius: 10, marginBottom: 10,
+                      background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)',
+                    }}>
+                      <textarea
+                        value={curEx.notes || ''}
+                        onChange={e => updateExerciseNotes(e.target.value)}
+                        placeholder="记录此动作的表现、难点或注意事项..."
+                        rows={2}
+                        style={{
+                          width: '100%', padding: '8px 10px', borderRadius: 8, resize: 'none',
+                          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(34,197,94,0.2)',
+                          color: '#fff', fontSize: 11, fontFamily: 'inherit', outline: 'none',
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* 节奏 */}
                   {curEx.rhythm && (
                     <div style={{
