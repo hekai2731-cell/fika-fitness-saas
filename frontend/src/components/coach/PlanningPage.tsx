@@ -1404,44 +1404,59 @@ export function PlanningPage({
     if (!client || !selectedWeek || !selectedBlock) return;
 
     try {
-      const outlineByDayKey: Record<string, { day_focus: string; session_name: string }> = {};
-      const dayPlans: Record<string, any> = {};
+      // 解析 week_theme，可能是 JSON 字符串或对象
+      let parsedWeekTheme = previewData?.week_theme;
+      if (typeof parsedWeekTheme === 'string') {
+        try {
+          parsedWeekTheme = JSON.parse(parsedWeekTheme);
+        } catch {
+          parsedWeekTheme = {};
+        }
+      }
 
-      // 构建 outline 和 dayPlans 的映射
+      // 构建日计划映射
+      const dayPlans: Record<string, any> = {};
       const previewDays = Array.isArray(previewData?.days) ? previewData.days : [];
       previewDays.forEach((d: any, idx: number) => {
-        const k = String(d?.day_key || d?.dayKey || d?.day || d?.day_of_week || '');
-        if (k) {
-          outlineByDayKey[k] = {
-            day_focus: String(d?.day_focus || ''),
-            session_name: String(d?.session_name || ''),
-          };
-          dayPlans[k] = d;
+        if (d) {
+          const dayKey = d?.day_key || d?.dayKey || d?.day || `day${idx + 1}`;
+          dayPlans[dayKey] = d;
           dayPlans[`day${idx + 1}`] = d;
         }
       });
 
+      // 更新 client 数据，完整保护每一层
       const next: Client = {
         ...client,
-        blocks: (client.blocks || []).map(b =>
-          b.id !== selectedBlock.id ? b : {
+        blocks: (Array.isArray(client.blocks) ? client.blocks : []).map(b =>
+          b?.id !== selectedBlock?.id ? b : {
             ...b,
-            training_weeks: (b.training_weeks || []).map(w =>
-              w.id !== selectedWeek.id ? w : {
+            training_weeks: (Array.isArray(b?.training_weeks) ? b.training_weeks : []).map(w =>
+              w?.id !== selectedWeek?.id ? w : {
                 ...w,
-                // 保存 week_theme 和 week_brief（如果返回了这些字段）
-                ...(previewData?.week_theme && { week_theme: previewData.week_theme }),
-                ...(previewData?.week_brief && { week_brief: previewData.week_brief }),
-                days: (w.days || []).map((d, di) => {
-                  const plan = dayPlans[d?.day || `day${di + 1}`] || null;
-                  if (!plan) return d;
+                // 保存 week_theme 和 week_brief（允许覆盖）
+                ...(parsedWeekTheme && Object.keys(parsedWeekTheme).length > 0 ? { week_theme: parsedWeekTheme } : {}),
+                ...(previewData?.week_brief ? { week_brief: previewData.week_brief } : {}),
+                // 更新 days，使用用户提供的匹配逻辑
+                days: (Array.isArray(w?.days) ? w.days : []).map((day) => {
+                  const match = previewDays.find((d: any) =>
+                    d?.day_key === day?.day || d?.dayKey === day?.day || d?.day_key === day?.id || d?.day === day?.day
+                  );
+
+                  if (!match) return day;
+
                   return {
-                    ...d,
-                    name: plan.session_name || outlineByDayKey[String(d?.day)]?.session_name || d?.name,
-                    focus: outlineByDayKey[String(d?.day)]?.day_focus || d?.focus,
-                    modules: (plan.modules || []).map((m: any) => ({
-                      ...m, id: genId('mod'),
-                      exercises: (Array.isArray(m?.exercises) ? m.exercises : []).map((ex: any) => ({ ...ex, id: genId('ex'), weight: '' })),
+                    ...day,
+                    name: match?.session_name || day?.name || '',
+                    focus: match?.day_focus || day?.focus || '',
+                    modules: (Array.isArray(match?.modules) ? match.modules : []).map((m: any) => ({
+                      ...m,
+                      id: genId('mod'),
+                      exercises: (Array.isArray(m?.exercises) ? m.exercises : []).map((ex: any) => ({
+                        ...ex,
+                        id: genId('ex'),
+                        weight: '',
+                      })),
                     })),
                   };
                 }),
@@ -1450,11 +1465,13 @@ export function PlanningPage({
           }
         ),
       };
+
       persistClient(next);
       setGeneratedPreview({ type: null, data: null });
     } catch (e: any) {
       console.error('[PlanningPage] 应用周计划预览失败:', e);
       setError('应用周计划失败：' + (e?.message || String(e)));
+      setGeneratedPreview({ type: null, data: null });
     }
   };
 
@@ -2752,7 +2769,13 @@ export function PlanningPage({
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>周主题</div>
                   <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>
-                    {aiPreviewData.week_theme ? JSON.stringify(aiPreviewData.week_theme).substring(0, 100) + '...' : '未提供'}
+                    {aiPreviewData.week_theme ? (() => {
+                      const theme = aiPreviewData.week_theme;
+                      if (typeof theme === 'object' && theme !== null) {
+                        return Object.values(theme).map((v: any) => v?.day_focus || '').filter(Boolean).join(' · ') || '主题信息';
+                      }
+                      return String(theme).substring(0, 150);
+                    })() : '未提供'}
                   </div>
                 </div>
                 <div style={{ marginBottom: 12 }}>

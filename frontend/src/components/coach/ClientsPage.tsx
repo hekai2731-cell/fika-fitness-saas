@@ -167,6 +167,7 @@ export function ClientsPage({
   });
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [approvalSuccess, setApprovalSuccess] = useState<string | null>(null);
+  const [tierSwitchingId, setTierSwitchingId] = useState<string | null>(null);
 
   const tierOrder: MembershipLevel[] = ['standard', 'advanced', 'professional', 'elite'];
 
@@ -282,9 +283,26 @@ export function ClientsPage({
   const activeTier = resolveMembershipLevel(activeClient);
   const tier = tierMeta[activeTier];
 
-  const switchTier = (nextTier: MembershipLevel) => {
+  const switchTier = async (nextTier: MembershipLevel) => {
     if (!activeClient) return;
-    persistClient({ ...activeClient, tier: tierMeta[nextTier].storeTier, membershipLevel: nextTier } as Client);
+
+    try {
+      setTierSwitchingId(activeClient.id);
+      const updatedClient = { ...activeClient, tier: tierMeta[nextTier].storeTier, membershipLevel: nextTier } as Client;
+
+      // 同步更新本地状态
+      const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
+      setClients(updatedClients);
+      saveClients(updatedClients);
+
+      // 等待异步保存完成
+      await saveClientAsync(updatedClient);
+      console.log('[ClientsPage] 档位已保存:', updatedClient.id, nextTier);
+    } catch (e: any) {
+      console.error('[ClientsPage] 档位切换失败:', e);
+    } finally {
+      setTierSwitchingId(null);
+    }
   };
 
   const updateGoalType = (goalType: GoalType) => {
@@ -934,6 +952,8 @@ export function ClientsPage({
                       type="button"
                       className={`tier-card tone-${key} ${on ? 'on' : ''}`}
                       onClick={() => switchTier(key)}
+                      disabled={tierSwitchingId === activeClient?.id}
+                      style={{ opacity: tierSwitchingId === activeClient?.id ? 0.6 : 1, cursor: tierSwitchingId === activeClient?.id ? 'not-allowed' : 'pointer' }}
                     >
                       <div className="tier-icon">◆</div>
                       <div>
@@ -963,11 +983,16 @@ export function ClientsPage({
                               switchTier(tierOrder[currentIndex + 1]);
                             }
                           }}
-                          style={{ marginTop: 14 }}
+                          disabled={tierSwitchingId === activeClient?.id || tierOrder.indexOf(key) >= tierOrder.length - 1}
+                          style={{
+                            marginTop: 14,
+                            opacity: tierSwitchingId === activeClient?.id ? 0.6 : 1,
+                            cursor: tierSwitchingId === activeClient?.id || tierOrder.indexOf(key) >= tierOrder.length - 1 ? 'not-allowed' : 'pointer',
+                          }}
                         >
-                          {tierOrder.indexOf(key) < tierOrder.length - 1
+                          {tierSwitchingId === activeClient?.id ? '保存中...' : (tierOrder.indexOf(key) < tierOrder.length - 1
                             ? `升级至 ${tierMeta[tierOrder[tierOrder.indexOf(key) + 1]].cn}`
-                            : '已达最高档位'}
+                            : '已达最高档位')}
                         </Button>
                       </div>
                     )}
