@@ -150,6 +150,7 @@ export function ClientsPage({
     sleep_hours: '',
     training_age_months: '',
   });
+  const [showTrainingHistory, setShowTrainingHistory] = useState(false);
 
   const tierOrder: MembershipLevel[] = ['standard', 'advanced', 'professional', 'elite'];
 
@@ -591,6 +592,145 @@ export function ClientsPage({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* 训练历史区块 */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <button
+            type="button"
+            onClick={() => setShowTrainingHistory(!showTrainingHistory)}
+            style={{
+              cursor: 'pointer',
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              fontSize: 14,
+              fontWeight: 700,
+              color: '#1f2435',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginTop: 18,
+            }}
+          >
+            <span>{showTrainingHistory ? '▾' : '▸'}</span>
+            • TRAINING HISTORY（训练历史）
+          </button>
+
+          {showTrainingHistory && (
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {!activeClient.sessions || activeClient.sessions.length === 0 ? (
+                <div style={{
+                  padding: 16,
+                  borderRadius: 10,
+                  border: '1px solid rgba(216,221,236,.75)',
+                  background: 'rgba(255,255,255,.55)',
+                  textAlign: 'center',
+                  color: '#94a3b8',
+                  fontSize: 12,
+                }}>
+                  暂无训练记录
+                </div>
+              ) : (
+                [...(activeClient.sessions || [])].reverse().map((session, idx, arr) => {
+                  const sessionDate = new Date(session.date).toLocaleDateString('zh-CN');
+                  const rpe = session.rpe || 0;
+                  let rpeBgColor = '#e8f5e9';
+                  let rpeTextColor = '#2e7d32';
+                  if (rpe >= 8) {
+                    rpeBgColor = '#ffebee';
+                    rpeTextColor = '#c62828';
+                  } else if (rpe >= 6) {
+                    rpeBgColor = '#e3f2fd';
+                    rpeTextColor = '#1565c0';
+                  }
+
+                  // 查找上一个同名 session
+                  const prevSessionIndex = arr.findIndex((s, sIdx) => sIdx > idx && s.day === session.day);
+                  const prevSession = prevSessionIndex >= 0 ? arr[prevSessionIndex] : null;
+
+                  return (
+                    <div
+                      key={session.date}
+                      style={{
+                        padding: 12,
+                        borderRadius: 10,
+                        border: '1px solid rgba(216,221,236,.75)',
+                        background: 'rgba(255,255,255,.55)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      {/* 日期 + session 名称 + RPE */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2435' }}>
+                          {sessionDate} · {session.day}
+                        </div>
+                        <div
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            background: rpeBgColor,
+                            color: rpeTextColor,
+                            fontSize: 11,
+                            fontWeight: 700,
+                          }}
+                        >
+                          RPE {rpe}
+                        </div>
+                      </div>
+
+                      {/* 教练备注 */}
+                      {session.note && (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontStyle: 'italic',
+                            color: '#94a3b8',
+                            paddingLeft: 8,
+                            borderLeft: '2px solid #cbd5e1',
+                          }}
+                        >
+                          {session.note}
+                        </div>
+                      )}
+
+                      {/* actual_weights 列表 */}
+                      {(session as any).actual_weights && (session as any).actual_weights.length > 0 && (
+                        <div style={{ fontSize: 12, color: '#475569' }}>
+                          {((session as any).actual_weights || []).map((weight: number, wIdx: number) => (
+                            <div key={wIdx} style={{ marginTop: wIdx > 0 ? 4 : 0 }}>
+                              实际重量 {wIdx + 1}：{weight}kg
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* 重量对比 */}
+                      {prevSession && (session as any).actual_weights && (session as any).actual_weights.length > 0 && (prevSession as any).actual_weights && (prevSession as any).actual_weights.length > 0 && (
+                        <div style={{ fontSize: 12, marginTop: 4, paddingTop: 8, borderTop: '1px solid rgba(226,232,240,.5)' }}>
+                          <div style={{ color: '#64748b', marginBottom: 4, fontWeight: 600 }}>重量对比（vs 上次 {prevSession.day}）</div>
+                          {((session as any).actual_weights || []).map((currentWeight: number, wIdx: number) => {
+                            const prevWeight = ((prevSession as any).actual_weights || [])[wIdx];
+                            if (prevWeight === undefined) return null;
+                            const diff = currentWeight - prevWeight;
+                            const color = diff > 0 ? '#16a34a' : diff < 0 ? '#dc2626' : '#64748b';
+                            const sign = diff > 0 ? '+' : '';
+                            return (
+                              <div key={wIdx} style={{ color, fontSize: 11, marginTop: 2, fontWeight: 600 }}>
+                                {wIdx + 1}# {sign}{diff}kg ({prevWeight}kg → {currentWeight}kg)
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column' }}>
