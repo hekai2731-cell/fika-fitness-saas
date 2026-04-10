@@ -269,53 +269,84 @@ export function ClientsPage({
   const addAssessmentRecord = () => {
     if (!activeClient) return;
 
-    const bodyMetrics = {
-      ...(activeClient.bodyMetrics || {}),
-      bf_pct: toNum(assessmentDraft.bf_pct),
-      smm_pct: toNum(assessmentDraft.smm_pct),
-      waist_cm: toNum(assessmentDraft.waist_cm),
-      rhr: toNum(assessmentDraft.rhr),
-      sleep_hours: toNum(assessmentDraft.sleep_hours),
-      training_age_months: toNum(assessmentDraft.training_age_months),
-    };
+    try {
+      const bodyMetrics = {
+        ...(activeClient.bodyMetrics || {}),
+        bf_pct: toNum(assessmentDraft.bf_pct),
+        smm_pct: toNum(assessmentDraft.smm_pct),
+        waist_cm: toNum(assessmentDraft.waist_cm),
+        rhr: toNum(assessmentDraft.rhr),
+        sleep_hours: toNum(assessmentDraft.sleep_hours),
+        training_age_months: toNum(assessmentDraft.training_age_months),
+      };
 
-    const previewScore = calcBodyAssetScore({ ...activeClient, bodyMetrics } as Client).total;
-    const record = {
-      date: new Date().toISOString().slice(0, 10),
-      weight: activeClient.weight,
-      bf_pct: bodyMetrics.bf_pct,
-      smm_pct: bodyMetrics.smm_pct,
-      rhr: bodyMetrics.rhr,
-      score_snapshot: previewScore,
-    };
+      const previewScore = (() => {
+        try {
+          return calcBodyAssetScore({ ...activeClient, bodyMetrics } as Client).total;
+        } catch (e) {
+          console.error('[ClientsPage] calcBodyAssetScore in addAssessmentRecord error:', e);
+          return 0;
+        }
+      })();
+      const record = {
+        date: new Date().toISOString().slice(0, 10),
+        weight: activeClient.weight,
+        bf_pct: bodyMetrics.bf_pct,
+        smm_pct: bodyMetrics.smm_pct,
+        rhr: bodyMetrics.rhr,
+        score_snapshot: previewScore,
+      };
 
-    persistClient({
-      ...activeClient,
-      bodyMetrics,
-      assessments: [...(activeClient.assessments || []), record],
-    } as Client);
+      persistClient({
+        ...activeClient,
+        bodyMetrics,
+        assessments: [...(activeClient.assessments || []), record],
+      } as Client);
 
-    setShowAssessmentForm(false);
-    setAssessmentDraft({
-      bf_pct: '',
-      smm_pct: '',
-      waist_cm: '',
-      rhr: '',
-      sleep_hours: '',
-      training_age_months: '',
-    });
+      setShowAssessmentForm(false);
+      setAssessmentDraft({
+        bf_pct: '',
+        smm_pct: '',
+        waist_cm: '',
+        rhr: '',
+        sleep_hours: '',
+        training_age_months: '',
+      });
+    } catch (e) {
+      console.error('[ClientsPage] addAssessmentRecord error:', e);
+      alert('保存体测记录失败，请稍后重试');
+    }
   };
 
   if (!activeClient) {
     return <div style={{ fontSize: 13, color: 'var(--s500)' }}>暂无客户数据</div>;
   }
 
-  const score = calcBodyAssetScore(activeClient);
-  const liftRatios = extractLiftRatios(activeClient);
+  const score = (() => {
+    try {
+      return calcBodyAssetScore(activeClient);
+    } catch (e) {
+      console.error('[ClientsPage] calcBodyAssetScore error:', e);
+      return { total: 0, breakdown: { bodyComp: 0, performance: 0, nutrition: 0, recovery: 0, execution: 0 }, tier: 'standard', weakest: 'bodyComp', gap_to_next: 0, available: { bodyComp: false, performance: false, nutrition: false, recovery: false, execution: false } };
+    }
+  })();
+  const liftRatios = (() => {
+    try {
+      return extractLiftRatios(activeClient);
+    } catch (e) {
+      console.error('[ClientsPage] extractLiftRatios error:', e);
+      return { squat: 0, deadlift: 0 };
+    }
+  })();
   const standards = tierStandardMap[activeTier];
 
   const latestAssessments = [...(activeClient.assessments || [])]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .filter(a => a?.date) // 添加日期有效性检查
+    .sort((a, b) => {
+      const timeA = new Date(b.date).getTime();
+      const timeB = new Date(a.date).getTime();
+      return Number.isFinite(timeA) && Number.isFinite(timeB) ? timeA - timeB : 0;
+    })
     .slice(0, 8)
     .reverse();
 
@@ -352,8 +383,16 @@ export function ClientsPage({
   const todayStr = new Date().toLocaleDateString('zh-CN');
   const todaySessions = useMemo(() => {
     const sessionsWithClients = clients.map(client => {
-      const todaySession = (client.sessions || []).find(s => new Date(s.date).toLocaleDateString('zh-CN') === todayStr);
-      return todaySession ? { client, session: todaySession } : null;
+      try {
+        const todaySession = (client.sessions || []).find(s => {
+          if (!s?.date) return false;
+          const sessionDate = new Date(s.date).toLocaleDateString('zh-CN');
+          return sessionDate === todayStr;
+        });
+        return todaySession ? { client, session: todaySession } : null;
+      } catch {
+        return null;
+      }
     }).filter(Boolean) as Array<{ client: Client; session: any }>;
     return sessionsWithClients;
   }, [clients, todayStr]);
@@ -694,8 +733,16 @@ export function ClientsPage({
                   const clientSessions = client.sessions || [];
                   const lastSessionIdx = clientSessions.length - 2;
                   const lastSession = lastSessionIdx >= 0 ? clientSessions[lastSessionIdx] : null;
-                  const daysSinceLastSession = lastSession
-                    ? Math.floor((new Date().getTime() - new Date(lastSession.date).getTime()) / (1000 * 60 * 60 * 24))
+                  const daysSinceLastSession = lastSession && lastSession.date
+                    ? (() => {
+                        try {
+                          const diff = new Date().getTime() - new Date(lastSession.date).getTime();
+                          if (!Number.isFinite(diff) || diff < 0) return null;
+                          return Math.floor(diff / (1000 * 60 * 60 * 24));
+                        } catch {
+                          return null;
+                        }
+                      })()
                     : null;
 
                   const selectedBlock = (client.blocks || [])[0];
@@ -825,8 +872,14 @@ export function ClientsPage({
                   暂无训练记录
                 </div>
               ) : (
-                [...(activeClient.sessions || [])].reverse().map((session, idx, arr) => {
-                  const sessionDate = new Date(session.date).toLocaleDateString('zh-CN');
+                [...(activeClient.sessions || [])].filter(s => s?.date).reverse().map((session, idx, arr) => {
+                  const sessionDate = (() => {
+                    try {
+                      return new Date(session.date).toLocaleDateString('zh-CN');
+                    } catch {
+                      return '日期无效';
+                    }
+                  })();
                   const rpe = session.rpe || 0;
                   let rpeBgColor = '#e8f5e9';
                   let rpeTextColor = '#2e7d32';
@@ -1003,7 +1056,13 @@ export function ClientsPage({
             <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>路书码：{activeClient.roadCode || '未设置'}</div>
             {activeClient.profile?.survey_completed_at && (
               <div style={{ marginTop: 6, fontSize: 12, color: '#15803d', fontWeight: 700 }}>
-                已填写时间：{new Date(activeClient.profile.survey_completed_at).toLocaleString('zh-CN')}
+                已填写时间：{(() => {
+                  try {
+                    return new Date(activeClient.profile.survey_completed_at).toLocaleString('zh-CN');
+                  } catch {
+                    return '时间无效';
+                  }
+                })()}
               </div>
             )}
 
