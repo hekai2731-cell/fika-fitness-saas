@@ -188,6 +188,19 @@ app.get('/api/clients', async (req, res) => {
   }
 });
 
+app.get('/api/clients/by-road-code/:code', async (req, res) => {
+  try {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    if (!code) return res.status(400).json({ error: 'road code required' });
+    const client = await Client.findOne({ roadCode: code }).lean();
+    if (!client) return res.status(404).json({ error: 'not found' });
+    res.json(client);
+  } catch (err) {
+    console.error('[backend] Road code lookup failed:', err);
+    res.status(500).json({ error: 'MongoDB operation failed', details: String(err) });
+  }
+});
+
 app.post('/api/clients', async (req, res) => {
   try {
     const clientData = req.body;

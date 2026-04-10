@@ -17,6 +17,7 @@ import { FinancePage } from './components/coach/FinancePage';
 import { HeartRatePage } from './components/coach/HeartRatePage';
 import { DietPage } from './components/coach/DietPage';
 import { getCoachesFromCache, loadClients, loadClientsAsync, loadCoaches, saveClient, saveClients } from '@/lib/store';
+import { calcLtvScore } from '@/lib/ltvScore';
 import { initSync } from '@/lib/sync';
 // ↓ 新增两个组件 import
 import { StudentPortal } from './components/student/StudentPortal';
@@ -555,6 +556,9 @@ function CoachClientSelectPage({
                 const level = resolveMembershipLevel(c);
                 const tierVisual = getTierVisual(level);
                 const cycleWeeks = (c as any).weeks_total || (c as any).weeks || Math.max(4, (c.blocks || []).length * 4);
+                const sessionsCount = (c.sessions || []).length;
+                const ltvScore = typeof c.ltv_score === 'number' ? c.ltv_score : calcLtvScore(c);
+                const ltvTag = ltvScore >= 70 ? '高价值' : (ltvScore < 30 && sessionsCount > 10 ? '流失风险' : '');
                 return (
                   <button
                     key={c.id}
@@ -575,6 +579,23 @@ function CoachClientSelectPage({
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                       <div style={{ fontSize: 17, fontWeight: 900, color: '#23293f' }}>{c.name}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {ltvTag && (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              fontSize: 10,
+                              fontWeight: 900,
+                              borderRadius: 999,
+                              padding: '4px 8px',
+                              border: ltvTag === '高价值' ? '1px solid rgba(217,119,6,.5)' : '1px solid rgba(220,38,38,.5)',
+                              background: ltvTag === '高价值' ? 'rgba(245,158,11,.18)' : 'rgba(220,38,38,.14)',
+                              color: ltvTag === '高价值' ? '#b45309' : '#b91c1c',
+                            }}
+                          >
+                            {ltvTag}
+                          </span>
+                        )}
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 900, color: tierVisual.badgeText, background: tierVisual.badgeBg, border: `1px solid ${tierVisual.badgeBorder}`, borderRadius: 999, padding: '4px 9px', letterSpacing: '.08em', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.36), 0 4px 10px rgba(25,32,58,.2)' }}>
                           <span style={{ width: 6, height: 6, borderRadius: 999, background: 'rgba(255,255,255,.9)', boxShadow: '0 0 6px rgba(255,255,255,.75)' }} />
                           {(c.tier || 'standard').toUpperCase()}

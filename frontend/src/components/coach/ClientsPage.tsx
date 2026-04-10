@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
 
 import { Button } from '@/components/ui/button';
 import type { Client } from '@/lib/db';
@@ -138,6 +139,9 @@ export function ClientsPage({
   const [metricLabels, setMetricLabels] = useState<string[]>(['体重 / WEIGHT', '身高 / HEIGHT', '年龄 / AGE', '体脂指数 / BMI', '肌肉量 / MUSCLE', '基础代谢 / BMR', '训练周期 / BLOCKS', '训练课次 / SESSIONS']);
   const [editingMetric, setEditingMetric] = useState<number | null>(null);
   const [showAssessmentForm, setShowAssessmentForm] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [qrError, setQrError] = useState<string | null>(null);
   const [assessmentDraft, setAssessmentDraft] = useState({
     bf_pct: '',
     smm_pct: '',
@@ -221,6 +225,23 @@ export function ClientsPage({
   };
 
   const activeClient = useMemo(() => clients.find((c) => c.id === activeId) || clients[0] || null, [clients, activeId]);
+
+  useEffect(() => {
+    if (!showQrModal || !activeClient?.roadCode) {
+      setQrDataUrl('');
+      return;
+    }
+    const link = `https://saas.fikafitness.com/survey?code=${activeClient.roadCode}`;
+    QRCode.toDataURL(link, { width: 240, margin: 1 })
+      .then((data: string) => {
+        setQrDataUrl(data);
+        setQrError(null);
+      })
+      .catch((e: unknown) => {
+        console.error('[clients] qrcode generate failed', e);
+        setQrError('二维码生成失败，请稍后重试');
+      });
+  }, [showQrModal, activeClient?.roadCode]);
 
   const activeTier = resolveMembershipLevel(activeClient);
   const tier = tierMeta[activeTier];
@@ -336,6 +357,22 @@ export function ClientsPage({
               <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span className="tier-pill" style={{ color: tier.accent, background: tier.soft }}>{tier.cn} / {tier.label} MEMBER</span>
                 <span className="head-loc">上海 / Shanghai, CN</span>
+                <button
+                  type="button"
+                  onClick={() => setShowQrModal(true)}
+                  style={{
+                    borderRadius: 999,
+                    border: `1px solid ${activeClient.profile?.survey_completed_at ? 'rgba(34,197,94,.45)' : 'rgba(109,84,234,.45)'}`,
+                    background: activeClient.profile?.survey_completed_at ? 'rgba(34,197,94,.12)' : 'rgba(109,84,234,.12)',
+                    color: activeClient.profile?.survey_completed_at ? '#15803d' : '#5a41d6',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    padding: '5px 10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {activeClient.profile?.survey_completed_at ? '已填写 ✓' : '问卷二维码'}
+                </button>
               </div>
             </div>
             <div className="head-week">第 {activeClient.current_week || 1} 周 / Week {activeClient.current_week || 1}</div>
@@ -604,6 +641,59 @@ export function ClientsPage({
           </div>
         </div>
       </div>
+
+      {showQrModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999,
+            background: 'rgba(15,23,42,.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setShowQrModal(false)}
+        >
+          <div
+            style={{
+              width: 'min(420px, 100%)',
+              borderRadius: 14,
+              border: '1px solid rgba(226,232,240,.88)',
+              background: '#fff',
+              padding: 16,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#1e293b' }}>发送给客户扫码填写</div>
+            <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>路书码：{activeClient.roadCode || '未设置'}</div>
+            {activeClient.profile?.survey_completed_at && (
+              <div style={{ marginTop: 6, fontSize: 12, color: '#15803d', fontWeight: 700 }}>
+                已填写时间：{new Date(activeClient.profile.survey_completed_at).toLocaleString('zh-CN')}
+              </div>
+            )}
+
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center' }}>
+              {qrDataUrl ? (
+                <img src={qrDataUrl} alt="survey-qrcode" style={{ width: 240, height: 240, borderRadius: 10, border: '1px solid #e2e8f0' }} />
+              ) : (
+                <div style={{ width: 240, height: 240, borderRadius: 10, border: '1px solid #e2e8f0', display: 'grid', placeItems: 'center', color: '#64748b', fontSize: 12 }}>
+                  {qrError || '二维码生成中...'}
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 12, fontSize: 12, color: '#475569', wordBreak: 'break-all' }}>
+              {`https://saas.fikafitness.com/survey?code=${activeClient.roadCode || ''}`}
+            </div>
+
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+              <Button type="button" variant="outline" onClick={() => setShowQrModal(false)}>关闭</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         .clients-premium {

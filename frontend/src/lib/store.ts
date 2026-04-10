@@ -1,4 +1,5 @@
 import type { Client } from '@/lib/db';
+import { calcLtvScore } from '@/lib/ltvScore';
 
 const LS_KEY_CLIENTS = 'fika_coach_clients_v1';
 const LS_KEY_COACHES = 'fika_coaches_v1';
@@ -57,23 +58,25 @@ export function saveClients(clients: Client[]) {
 
 // 异步保存单个客户到服务器
 export async function saveClient(client: Client): Promise<void> {
+  const nextClient: Client = { ...client, ltv_score: calcLtvScore(client) };
+
   try {
-    const response = await fetch(`/api/clients/${client.id}`, {
+    const response = await fetch(`/api/clients/${nextClient.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(client),
+      body: JSON.stringify(nextClient),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    console.log('[store] Client saved:', client.id);
+    console.log('[store] Client saved:', nextClient.id);
   } catch (e) {
     console.warn('[store] Failed to save client:', e);
   }
 
   // 同时更新本地缓存
   const all = lsReadClients();
-  const idx = all.findIndex(c => c.id === client.id);
-  if (idx >= 0) all[idx] = client;
-  else all.unshift(client);
+  const idx = all.findIndex(c => c.id === nextClient.id);
+  if (idx >= 0) all[idx] = nextClient;
+  else all.unshift(nextClient);
   lsWriteClients(all);
 }
 
