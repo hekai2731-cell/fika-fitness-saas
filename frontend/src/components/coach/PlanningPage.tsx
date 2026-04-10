@@ -674,6 +674,9 @@ export function PlanningPage({
   const [aiPreviewMode, setAiPreviewMode] = useState<'day' | 'week' | 'full' | null>(null);
   const [aiPreviewData, setAiPreviewData] = useState<any>(null);
 
+  // ── 课前速览面板状态 ──
+  const [preSessionPreviewOpen, setPreSessionPreviewOpen] = useState(false);
+
   useEffect(() => {
     const list = loadClients();
     const visible = list.filter(c => c.name !== '示例客户');
@@ -718,6 +721,28 @@ export function PlanningPage({
     if (!selectedWeek?.days || !selectedDayId) return null;
     return selectedWeek.days.find(d => d.id === selectedDayId) || null;
   }, [selectedWeek?.days, selectedDayId]);
+
+  // ── 计算距上次上课天数 ──
+  const daysSinceLastSession = useMemo(() => {
+    if (!client?.sessions || client.sessions.length === 0) return null;
+    const lastSession = client.sessions[client.sessions.length - 1];
+    if (!lastSession.date) return null;
+    const lastDate = new Date(lastSession.date);
+    const today = new Date();
+    const diffTime = today.getTime() - lastDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  }, [client?.sessions]);
+
+  // ── 获取上次RPE和教练备注 ──
+  const lastSessionInfo = useMemo(() => {
+    if (!client?.sessions || client.sessions.length === 0) return { rpe: null, notes: null };
+    const lastSession = client.sessions[client.sessions.length - 1];
+    return {
+      rpe: lastSession.rpe || null,
+      notes: lastSession.note || null,
+    };
+  }, [client?.sessions]);
 
   // ── 持久化 ──────────────────────────────────────────────────
   const persistClient = (next: Client) => {
@@ -1951,6 +1976,15 @@ export function PlanningPage({
                 </Button>
                 <Button
                   type="button"
+                  className="h-10 rounded-md border border-input bg-card px-4 text-sm font-semibold text-foreground hover:bg-muted"
+                  onClick={() => setPreSessionPreviewOpen(!preSessionPreviewOpen)}
+                  disabled={!client}
+                  title="查看课前信息"
+                >
+                  📋 课前速览
+                </Button>
+                <Button
+                  type="button"
                   className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90"
                   onClick={startTrainingNow}
                   disabled={!client || anyLoading}
@@ -1970,6 +2004,94 @@ export function PlanningPage({
                 </Button>
               </div>
             </div>
+
+            {/* 课前速览面板 */}
+            {preSessionPreviewOpen && client && (
+              <div style={{
+                marginTop: 12,
+                padding: 12,
+                backgroundColor: 'rgba(148, 163, 184, 0.1)',
+                borderRadius: 12,
+                fontSize: 12,
+                borderLeft: '3px solid #94a3b8',
+              }}>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontWeight: 700, color: 'var(--s700)', marginBottom: 8 }}>课前信息</div>
+
+                  {/* 距上次上课天数 */}
+                  <div style={{ marginBottom: 6, color: 'var(--s600)' }}>
+                    📅 距上次上课：
+                    {daysSinceLastSession !== null ? (
+                      <span style={{ fontWeight: 600, color: 'var(--s800)' }}>
+                        {daysSinceLastSession} 天前
+                      </span>
+                    ) : (
+                      <span style={{ fontStyle: 'italic', opacity: 0.7 }}>无上课记录</span>
+                    )}
+                  </div>
+
+                  {/* 上次RPE + 教练备注 */}
+                  {daysSinceLastSession !== null && (
+                    <div style={{ marginBottom: 6, color: 'var(--s600)' }}>
+                      <div style={{ marginBottom: 4 }}>
+                        💪 上次RPE：
+                        {lastSessionInfo.rpe !== null ? (
+                          <span style={{ fontWeight: 600, color: 'var(--s800)' }}>{lastSessionInfo.rpe}</span>
+                        ) : (
+                          <span style={{ fontStyle: 'italic', opacity: 0.7 }}>未记录</span>
+                        )}
+                      </div>
+                      {lastSessionInfo.notes && (
+                        <div style={{
+                          padding: '6px 8px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                          borderRadius: 6,
+                          marginLeft: 20,
+                          fontStyle: 'italic',
+                          color: 'var(--s700)',
+                          borderLeft: '2px solid var(--s400)',
+                        }}>
+                          {lastSessionInfo.notes}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 伤病预警 */}
+                  {(client as any).injury_detail && (
+                    <div style={{
+                      marginBottom: 6,
+                      padding: '8px 10px',
+                      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                      borderRadius: 6,
+                      borderLeft: '3px solid #ef4444',
+                      color: '#dc2626',
+                      fontWeight: 600,
+                    }}>
+                      ⚠️ 注意：{(client as any).injury_detail}
+                    </div>
+                  )}
+
+                  {/* 今日训练重点 */}
+                  {selectedWeek && (selectedWeek as any).week_brief && (
+                    <div style={{ marginBottom: 6, color: 'var(--s600)' }}>
+                      <div style={{ marginBottom: 4, fontWeight: 600, color: 'var(--s700)' }}>
+                        🎯 今日训练重点
+                      </div>
+                      <div style={{
+                        padding: '6px 8px',
+                        backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                        borderRadius: 6,
+                        borderLeft: '2px solid #a855f7',
+                        color: 'var(--s700)',
+                      }}>
+                        {(selectedWeek as any).week_brief}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {!selectedWeek ? (
