@@ -488,6 +488,150 @@ app.get('/api/plans/:id', async (req, res) => {
   }
 });
 
+// ── 问卷招募相关接口 ────────────────────────────────────────────
+
+// POST /api/survey/submit - 提交新问卷
+app.post('/api/survey/submit', async (req, res) => {
+  try {
+    const { coachCode, name, phone, profile } = req.body;
+
+    if (!coachCode || !name || !phone) {
+      return res.status(400).json({ error: 'missing required fields' });
+    }
+
+    const db = mongoose.connection.db;
+    if (!db) {
+      return res.status(500).json({ error: 'database not available' });
+    }
+
+    const surveyPending = db.collection('survey_pending');
+    const result = await surveyPending.insertOne({
+      coachCode: String(coachCode).toUpperCase(),
+      name: String(name).trim(),
+      phone: String(phone).trim(),
+      profile: profile || {},
+      submittedAt: new Date(),
+      status: 'pending',
+    });
+
+    res.json({ id: result.insertedId, status: 'submitted' });
+  } catch (err) {
+    console.error('[survey] submit failed', err);
+    res.status(500).json({ error: 'submit failed', details: String(err) });
+  }
+});
+
+// GET /api/survey/pending - 获取待审核问卷
+app.get('/api/survey/pending', async (req, res) => {
+  try {
+    const { coachCode } = req.query;
+
+    if (!coachCode) {
+      return res.status(400).json({ error: 'coachCode required' });
+    }
+
+    const db = mongoose.connection.db;
+    if (!db) {
+      return res.status(500).json({ error: 'database not available' });
+    }
+
+    const surveyPending = db.collection('survey_pending');
+    const records = await surveyPending
+      .find({
+        coachCode: String(coachCode).toUpperCase(),
+        status: 'pending',
+      })
+      .sort({ submittedAt: -1 })
+      .toArray();
+
+    res.json(records);
+  } catch (err) {
+    console.error('[survey] pending query failed', err);
+    res.status(500).json({ error: 'query failed', details: String(err) });
+  }
+});
+
+// POST /api/survey/approve/:id - 审核通过，创建正式客户
+app.post('/api/survey/approve/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { weight, height, bf_pct, rhr, tier, coachCode } = req.body;
+
+    const db = mongoose.connection.db;
+    if (!db) {
+      return res.status(500).json({ error: 'database not available' });
+    }
+
+    // 获取待审核问卷
+    const surveyPending = db.collection('survey_pending');
+    const survey = await surveyPending.findOne({ _id: new mongoose.Types.ObjectId(id) });
+    if (!survey) {
+      return res.status(404).json({ error: 'survey not found' });
+    }
+
+    // 生成路书码：FIKA-WF + 3位随机数字，确保不重复
+    let roadCode = '';
+    let exists = true;
+    while (exists) {
+      const rand = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+      roadCode = `FIKA-WF${rand}`;
+      const existingClient = await db.collection('fika_clients').findOne({ roadCode });
+      exists = !!existingClient;
+    }
+
+    // 创建新客户
+    const newClient = {
+      id: `client-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      name: survey.name,
+      roadCode,
+      coachCode: String(coachCode).toUpperCase(),
+      tier: tier || 'standard',
+      gender: 'male',
+      age: 0,
+      height: height ? Number(height) : 0,
+      weight: weight ? Number(weight) : 0,
+      bodyFat: bf_pct ? Number(bf_pct) : null,
+      rhr: rhr ? Number(rhr) : null,
+      goal: '',
+      injury: '',
+      weeklyData: [],
+      start_date: new Date().toISOString(),
+      current_week: 1,
+      blocks: [],
+      published_blocks: [],
+      plan_draft_version: 0,
+      plan_published_version: 0,
+      plan_updated_at: '',
+      plan_published_at: '',
+      sessions: [],
+      profile: survey.profile || {},
+      bodyMetrics: {
+        bf_pct: bf_pct ? Number(bf_pct) : undefined,
+        rhr: rhr ? Number(rhr) : undefined,
+      },
+    };
+
+    // 保存到 fika_clients
+    const clientResult = await db.collection('fika_clients').insertOne(newClient);
+
+    // 更新问卷状态为已审核
+    await surveyPending.updateOne(
+      { _id: new mongoose.Types.ObjectId(id) },
+      { $set: { status: 'approved', approvedAt: new Date() } }
+    );
+
+    res.json({
+      clientId: newClient.id,
+      roadCode,
+      name: newClient.name,
+      tier: newClient.tier,
+    });
+  } catch (err) {
+    console.error('[survey] approve failed', err);
+    res.status(500).json({ error: 'approve failed', details: String(err) });
+  }
+});
+
 const port = Number(process.env.PORT || 4000);
 
 async function bootstrap() {

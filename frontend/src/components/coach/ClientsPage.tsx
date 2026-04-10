@@ -130,9 +130,11 @@ function extractLiftRatios(client: Client): { squat: number; deadlift: number } 
 export function ClientsPage({
   onSelect,
   selectedClientId,
+  coachCode,
 }: {
   onSelect: (clientId: string) => void;
   selectedClientId: string | null;
+  coachCode?: string | null;
 }) {
   const [clients, setClients] = useState<Client[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -152,6 +154,22 @@ export function ClientsPage({
   });
   const [showTrainingHistory, setShowTrainingHistory] = useState(false);
   const [showTodayWorkstation, setShowTodayWorkstation] = useState(true);
+
+  // 招募码和待审核问卷
+  const [showRecruitmentCode, setShowRecruitmentCode] = useState(false);
+  const [recruitmentQrUrl, setRecruitmentQrUrl] = useState('');
+  const [pendingSurveys, setPendingSurveys] = useState<any[]>([]);
+  const [expandedSurveyId, setExpandedSurveyId] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approvalForm, setApprovalForm] = useState({
+    weight: '',
+    height: '',
+    bf_pct: '',
+    rhr: '',
+    tier: 'standard',
+  });
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [approvalSuccess, setApprovalSuccess] = useState<string | null>(null);
 
   const tierOrder: MembershipLevel[] = ['standard', 'advanced', 'professional', 'elite'];
 
@@ -245,6 +263,41 @@ export function ClientsPage({
       });
   }, [showQrModal, activeClient?.roadCode]);
 
+  // Load pending surveys for coach
+  useEffect(() => {
+    if (!coachCode) return;
+    const loadPendingSurveys = async () => {
+      try {
+        const res = await fetch(`/api/survey/pending?coachCode=${encodeURIComponent(coachCode)}`);
+        if (!res.ok) {
+          console.error('[clients] load pending surveys failed:', res.status);
+          return;
+        }
+        const surveys = (await res.json()) as any[];
+        setPendingSurveys(surveys);
+      } catch (e) {
+        console.error('[clients] load pending surveys error:', e);
+      }
+    };
+    loadPendingSurveys();
+  }, [coachCode]);
+
+  // Generate recruitment QR code
+  useEffect(() => {
+    if (!showRecruitmentCode || !coachCode) {
+      setRecruitmentQrUrl('');
+      return;
+    }
+    const link = `https://saas.fikafitness.com/survey?coach=${coachCode}`;
+    QRCode.toDataURL(link, { width: 240, margin: 1 })
+      .then((data: string) => {
+        setRecruitmentQrUrl(data);
+      })
+      .catch((e: unknown) => {
+        console.error('[clients] recruitment qrcode generate failed', e);
+      });
+  }, [showRecruitmentCode, coachCode]);
+
   const activeTier = resolveMembershipLevel(activeClient);
   const tier = tierMeta[activeTier];
 
@@ -315,6 +368,57 @@ export function ClientsPage({
     } catch (e) {
       console.error('[ClientsPage] addAssessmentRecord error:', e);
       alert('保存体测记录失败，请稍后重试');
+    }
+  };
+
+  const handleApproveSurvey = async (surveyId: string) => {
+    if (!coachCode) return;
+    setApprovalError(null);
+    setApprovalSuccess(null);
+
+    try {
+      const weight = approvalForm.weight ? parseFloat(approvalForm.weight) : undefined;
+      const height = approvalForm.height ? parseFloat(approvalForm.height) : undefined;
+      const bf_pct = approvalForm.bf_pct ? parseFloat(approvalForm.bf_pct) : undefined;
+      const rhr = approvalForm.rhr ? parseFloat(approvalForm.rhr) : undefined;
+
+      const res = await fetch(`/api/survey/approve/${surveyId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          weight,
+          height,
+          bf_pct,
+          rhr,
+          tier: approvalForm.tier,
+          coachCode,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const result = (await res.json()) as { clientId: string; roadCode: string; name: string; tier: string };
+
+      // Remove approved survey from list
+      setPendingSurveys((prev) => prev.filter((s) => s._id !== surveyId));
+      setApprovingId(null);
+
+      // Reset form
+      setApprovalForm({
+        weight: '',
+        height: '',
+        bf_pct: '',
+        rhr: '',
+        tier: 'standard',
+      });
+
+      setApprovalSuccess(`建档成功，路书码：${result.roadCode}`);
+      setTimeout(() => setApprovalSuccess(null), 3000);
+    } catch (e) {
+      console.error('[clients] approve survey failed', e);
+      setApprovalError('审核失败，请稍后重试');
     }
   };
 
@@ -411,6 +515,312 @@ export function ClientsPage({
 
   return (
     <div className="clients-premium">
+      {/* Recruitment Code and Pending Surveys Section */}
+      {coachCode && (
+        <div style={{ display: 'grid', gap: 16, marginBottom: 20, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+          {/* 我的招募码 Button and Modal */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowRecruitmentCode(true)}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                borderRadius: 12,
+                border: '1px solid rgba(109,84,234,.45)',
+                background: 'rgba(109,84,234,.08)',
+                color: '#5a41d6',
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                (e.target as HTMLButtonElement).style.background = 'rgba(109,84,234,.14)';
+              }}
+              onMouseLeave={(e) => {
+                (e.target as HTMLButtonElement).style.background = 'rgba(109,84,234,.08)';
+              }}
+            >
+              我的招募码 QR
+            </button>
+
+            {showRecruitmentCode && (
+              <div
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'rgba(0,0,0,.5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 999,
+                }}
+                onClick={() => setShowRecruitmentCode(false)}
+              >
+                <div
+                  style={{
+                    background: '#fff',
+                    borderRadius: 12,
+                    padding: 24,
+                    maxWidth: 400,
+                    textAlign: 'center',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>招募二维码</div>
+                  {recruitmentQrUrl && (
+                    <div style={{ marginBottom: 16 }}>
+                      <img src={recruitmentQrUrl} alt="recruitment qr" style={{ width: 200, height: 200 }} />
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: '#666', marginBottom: 8, wordBreak: 'break-all' }}>
+                    https://saas.fikafitness.com/survey?coach={coachCode}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#999', marginBottom: 16 }}>长按保存二维码分享给客户</div>
+                  <button
+                    type="button"
+                    onClick={() => setShowRecruitmentCode(false)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: '#5a41d6',
+                      color: '#fff',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    关闭
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 待审核问卷 Count Badge */}
+          {pendingSurveys.length > 0 && (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setExpandedSurveyId(expandedSurveyId ? null : 'list')}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  borderRadius: 12,
+                  border: '1px solid rgba(239,68,68,.45)',
+                  background: 'rgba(239,68,68,.08)',
+                  color: '#dc2626',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  position: 'relative',
+                }}
+                onMouseEnter={(e) => {
+                  (e.target as HTMLButtonElement).style.background = 'rgba(239,68,68,.14)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.target as HTMLButtonElement).style.background = 'rgba(239,68,68,.08)';
+                }}
+              >
+                待审核问卷 ({pendingSurveys.length})
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: -8,
+                    right: -8,
+                    background: '#dc2626',
+                    color: '#fff',
+                    borderRadius: '50%',
+                    width: 24,
+                    height: 24,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {pendingSurveys.length}
+                </span>
+              </button>
+
+              {expandedSurveyId === 'list' && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    border: '1px solid rgba(239,68,68,.3)',
+                    borderRadius: 8,
+                    background: 'rgba(239,68,68,.04)',
+                    maxHeight: 400,
+                    overflowY: 'auto',
+                  }}
+                >
+                  {pendingSurveys.map((survey) => (
+                    <div
+                      key={survey._id}
+                      style={{
+                        padding: 12,
+                        borderBottom: '1px solid rgba(239,68,68,.2)',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLDivElement).style.background = 'rgba(239,68,68,.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+                      }}
+                    >
+                      {approvingId === survey._id ? (
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700 }}>建档表单</div>
+                          <div style={{ fontSize: 11, color: '#666' }}>姓名：{survey.name}</div>
+                          <div style={{ fontSize: 11, color: '#666' }}>电话：{survey.phone}</div>
+
+                          <input
+                            type="number"
+                            placeholder="体重 (kg)"
+                            value={approvalForm.weight}
+                            onChange={(e) => setApprovalForm((p) => ({ ...p, weight: e.target.value }))}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(109,84,234,.3)',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <input
+                            type="number"
+                            placeholder="身高 (cm)"
+                            value={approvalForm.height}
+                            onChange={(e) => setApprovalForm((p) => ({ ...p, height: e.target.value }))}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(109,84,234,.3)',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <input
+                            type="number"
+                            placeholder="体脂率 (%)"
+                            value={approvalForm.bf_pct}
+                            onChange={(e) => setApprovalForm((p) => ({ ...p, bf_pct: e.target.value }))}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(109,84,234,.3)',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <input
+                            type="number"
+                            placeholder="静息心率 (bpm)"
+                            value={approvalForm.rhr}
+                            onChange={(e) => setApprovalForm((p) => ({ ...p, rhr: e.target.value }))}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(109,84,234,.3)',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <select
+                            value={approvalForm.tier}
+                            onChange={(e) => setApprovalForm((p) => ({ ...p, tier: e.target.value }))}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(109,84,234,.3)',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                            }}
+                          >
+                            <option value="standard">基础会员</option>
+                            <option value="pro">进阶会员</option>
+                            <option value="ultra">至尊会员</option>
+                          </select>
+
+                          {approvalError && (
+                            <div style={{ fontSize: 12, color: '#dc2626' }}>{approvalError}</div>
+                          )}
+                          {approvalSuccess && (
+                            <div style={{ fontSize: 12, color: '#15803d' }}>{approvalSuccess}</div>
+                          )}
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => setApprovingId(null)}
+                              style={{
+                                padding: '6px 8px',
+                                borderRadius: 4,
+                                border: '1px solid rgba(109,84,234,.3)',
+                                background: '#fff',
+                                color: '#5a41d6',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              取消
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleApproveSurvey(survey._id)}
+                              style={{
+                                padding: '6px 8px',
+                                borderRadius: 4,
+                                border: 'none',
+                                background: '#15803d',
+                                color: '#fff',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              确认建档
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div onClick={() => setApprovingId(survey._id)}>
+                          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{survey.name}</div>
+                          <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>电话：{survey.phone}</div>
+                          <div style={{ fontSize: 11, color: '#999' }}>
+                            提交时间：{new Date(survey.submittedAt).toLocaleString('zh-CN')}
+                          </div>
+                          {survey.profile && (
+                            <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+                              目标：{survey.profile.goal_type || '未选择'} | 预算：{survey.profile.budget_level || '未选择'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="clients-layout">
         <div>
           <div className="head-profile" style={{ borderColor: tier.ring }}>

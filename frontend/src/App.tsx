@@ -955,6 +955,7 @@ function CoachPortal({
               setSelectedClientId(id);
               setTab('planning');
             }}
+            coachCode={coachCode}
           />
         ) : tab === 'planning' ? (
           <PlanningPage

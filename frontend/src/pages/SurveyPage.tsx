@@ -3,7 +3,7 @@ import { type CSSProperties, useMemo, useState } from 'react';
 import type { Client } from '@/lib/db';
 
 type Profile = NonNullable<Client['profile']>;
-type StepKey = 1 | 2 | 3;
+type StepKey = 0 | 1 | 2 | 3;
 
 const STEP_1 = [
   {
@@ -149,6 +149,7 @@ const STEP_3 = [
 ];
 
 const QUESTION_MAP = {
+  0: [],
   1: STEP_1,
   2: STEP_2,
   3: STEP_3,
@@ -156,9 +157,12 @@ const QUESTION_MAP = {
 
 export function SurveyPage() {
   const search = new URLSearchParams(window.location.search);
-  const code = String(search.get('code') || '').trim().toUpperCase();
+  const coachCode = String(search.get('coach') || '').trim().toUpperCase();
+  const code = String(search.get('code') || '').trim().toUpperCase(); // 兼容旧流程
 
-  const [step, setStep] = useState<StepKey>(1);
+  const [step, setStep] = useState<StepKey>(coachCode ? 0 : 1);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [profile, setProfile] = useState<Partial<Profile>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
@@ -166,10 +170,13 @@ export function SurveyPage() {
 
   const questions = QUESTION_MAP[step];
 
-  const canNext = useMemo(
-    () => questions.every((q) => (profile as any)[q.key] !== undefined && (profile as any)[q.key] !== ''),
-    [questions, profile],
-  );
+  const canNext = useMemo(() => {
+    if (step === 0) {
+      // 第0步：检查姓名和手机
+      return name.trim() !== '' && phone.trim() !== '' && /^\d{11}$/.test(phone);
+    }
+    return questions.every((q) => (profile as any)[q.key] !== undefined && (profile as any)[q.key] !== '');
+  }, [step, name, phone, questions, profile]);
 
   const onPick = (key: keyof Profile, value: any) => {
     setProfile((prev) => ({ ...prev, [key]: value }));
@@ -177,39 +184,57 @@ export function SurveyPage() {
   };
 
   const onSubmit = async () => {
-    if (!code) {
-      setError('二维码已失效，请联系教练');
-      return;
-    }
-
     setSubmitting(true);
     setError(null);
 
     try {
-      const findRes = await fetch(`/api/clients/by-road-code/${encodeURIComponent(code)}`);
-      if (!findRes.ok) {
+      if (coachCode) {
+        // 新流程：通过教练码提交
+        const res = await fetch('/api/survey/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            coachCode,
+            name: name.trim(),
+            phone: phone.trim(),
+            profile: profile as Profile,
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        setSubmittedAt(new Date().toISOString());
+      } else if (code) {
+        // 旧流程：通过路书码提交
+        const findRes = await fetch(`/api/clients/by-road-code/${encodeURIComponent(code)}`);
+        if (!findRes.ok) {
+          setError('二维码已失效，请联系教练');
+          return;
+        }
+
+        const client = (await findRes.json()) as Client;
+        const nextProfile: Profile = {
+          ...(client.profile || {}),
+          ...(profile as Profile),
+          survey_completed_at: new Date().toISOString(),
+        };
+
+        const saveRes = await fetch(`/api/clients/${client.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...client, profile: nextProfile }),
+        });
+
+        if (!saveRes.ok) {
+          throw new Error(`HTTP ${saveRes.status}`);
+        }
+
+        setSubmittedAt(nextProfile.survey_completed_at || new Date().toISOString());
+      } else {
         setError('二维码已失效，请联系教练');
-        return;
       }
-
-      const client = (await findRes.json()) as Client;
-      const nextProfile: Profile = {
-        ...(client.profile || {}),
-        ...(profile as Profile),
-        survey_completed_at: new Date().toISOString(),
-      };
-
-      const saveRes = await fetch(`/api/clients/${client.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...client, profile: nextProfile }),
-      });
-
-      if (!saveRes.ok) {
-        throw new Error(`HTTP ${saveRes.status}`);
-      }
-
-      setSubmittedAt(nextProfile.survey_completed_at || new Date().toISOString());
     } catch (e) {
       console.error('[survey] submit failed', e);
       setError('提交失败，请稍后重试');
@@ -223,7 +248,7 @@ export function SurveyPage() {
       <div style={styles.page}>
         <div style={styles.card}>
           <div style={styles.brand}>FiKA Fitness</div>
-          <h2 style={styles.title}>感谢填写，教练稍后与您沟通</h2>
+          <h2 style={styles.title}>感谢填写，您的教练会尽快联系您</h2>
           <p style={styles.sub}>提交时间：{new Date(submittedAt).toLocaleString('zh-CN')}</p>
         </div>
       </div>
@@ -235,17 +260,42 @@ export function SurveyPage() {
       <div style={styles.card}>
         <div style={styles.brand}>FiKA 客户信息采集</div>
         <div style={styles.progressWrap}>
-          <div style={styles.progressText}>第 {step} 步 / 共 3 步</div>
+          <div style={styles.progressText}>{step === 0 ? '基本信息' : `第 ${step} 步 / 共 3 步`}</div>
           <div style={styles.progressTrack}>
-            <div style={{ ...styles.progressFill, width: `${(step / 3) * 100}%` }} />
+            <div style={{ ...styles.progressFill, width: `${(step / (coachCode ? 4 : 3)) * 100}%` }} />
           </div>
         </div>
 
-        {!code && <div style={styles.error}>二维码已失效，请联系教练</div>}
+        {!coachCode && !code && <div style={styles.error}>二维码已失效，请联系教练</div>}
         {error && <div style={styles.error}>{error}</div>}
 
         <div style={styles.questionWrap}>
-          {questions.map((q) => (
+          {step === 0 && (
+            <>
+              <div style={styles.block}>
+                <div style={styles.questionTitle}>您的姓名（必填）</div>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="请输入姓名"
+                  style={{ ...styles.textInput }}
+                />
+              </div>
+              <div style={styles.block}>
+                <div style={styles.questionTitle}>手机号（必填）</div>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                  placeholder="请输入11位手机号"
+                  maxLength={11}
+                  style={{ ...styles.textInput }}
+                />
+              </div>
+            </>
+          )}
+          {step > 0 && questions.map((q) => (
             <div key={q.key} style={styles.block}>
               <div style={styles.questionTitle}>{q.title}</div>
               <div style={styles.optionsGrid}>
@@ -268,7 +318,7 @@ export function SurveyPage() {
         </div>
 
         <div style={styles.actions}>
-          <button type="button" style={styles.secondaryBtn} disabled={step === 1} onClick={() => setStep((s) => Math.max(1, s - 1) as StepKey)}>
+          <button type="button" style={styles.secondaryBtn} disabled={step === 0 || step === 1} onClick={() => setStep((s) => Math.max(0, s - 1) as StepKey)}>
             上一步
           </button>
 
@@ -277,7 +327,7 @@ export function SurveyPage() {
               下一步
             </button>
           ) : (
-            <button type="button" style={styles.primaryBtn} disabled={!canNext || submitting || !code} onClick={onSubmit}>
+            <button type="button" style={styles.primaryBtn} disabled={!canNext || submitting || (!coachCode && !code)} onClick={onSubmit}>
               {submitting ? '提交中...' : '提交问卷'}
             </button>
           )}
@@ -397,5 +447,16 @@ const styles: Record<string, CSSProperties> = {
     color: '#b42318',
     fontSize: 13,
     padding: '8px 10px',
+  },
+  textInput: {
+    width: '100%',
+    boxSizing: 'border-box' as const,
+    padding: '10px 12px',
+    border: '1px solid #d8cff8',
+    borderRadius: 10,
+    fontSize: 14,
+    fontFamily: 'inherit',
+    outline: 'none',
+    transition: 'border-color .2s',
   },
 };
