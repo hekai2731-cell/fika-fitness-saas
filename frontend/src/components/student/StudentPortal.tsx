@@ -830,18 +830,36 @@ function HistoryTab({ client }: { client: Client }) {
     return '19:30'; // 可以根据实际数据结构调整
   };
 
-  const getHeartRateData = (_session: any) => {
-    // 模拟心率数据，实际应从session数据中获取
+  const getHeartRateData = (session: any) => {
+    const zoneDurations = (session?.hrZoneDurations || {}) as Record<number, number>;
+    const hasHr = typeof session?.hrAvg === 'number' || typeof session?.hrMax === 'number' || Object.keys(zoneDurations).length > 0;
+
+    if (!hasHr) {
+      return {
+        avg: '--',
+        max: '--',
+        kcal: typeof session?.kcal === 'number' ? session.kcal.toFixed(1) : '--',
+        zones: {
+          zone1: 1,
+          zone2: 1,
+          zone3: 1,
+          zone4: 1,
+          zone5: 1,
+        },
+      };
+    }
+
     return {
-      avg: 142,
-      max: 168,
+      avg: typeof session?.hrAvg === 'number' ? session.hrAvg : '--',
+      max: typeof session?.hrMax === 'number' ? session.hrMax : '--',
+      kcal: typeof session?.kcal === 'number' ? session.kcal.toFixed(1) : '--',
       zones: {
-        zone1: 5,  // 热身区
-        zone2: 15, // 燃脂区
-        zone3: 25, // 有氧区
-        zone4: 10, // 无氧区
-        zone5: 5   // 极限区
-      }
+        zone1: Number(zoneDurations[1] || 0),
+        zone2: Number(zoneDurations[2] || 0),
+        zone3: Number(zoneDurations[3] || 0),
+        zone4: Number(zoneDurations[4] || 0),
+        zone5: Number(zoneDurations[5] || 0),
+      },
     };
   };
 
@@ -986,6 +1004,10 @@ function HistoryTab({ client }: { client: Client }) {
                       <div>
                         <span style={{ fontSize: 12, color: 'var(--s600)' }}>最高: </span>
                         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--r)' }}>{heartRateData.max} bpm</span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: 12, color: 'var(--s600)' }}>消耗: </span>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--p)' }}>{heartRateData.kcal} kcal</span>
                       </div>
                     </div>
                     

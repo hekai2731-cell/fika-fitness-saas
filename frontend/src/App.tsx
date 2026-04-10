@@ -19,6 +19,7 @@ import { DietPage } from './components/coach/DietPage';
 import { getCoachesFromCache, loadClients, loadClientsAsync, loadCoaches, saveClient, saveClients } from '@/lib/store';
 import { calcLtvScore } from '@/lib/ltvScore';
 import { initSync } from '@/lib/sync';
+import QRCode from 'qrcode';
 // ↓ 新增两个组件 import
 import { StudentPortal } from './components/student/StudentPortal';
 import { AdminPortal } from './components/admin/AdminPortal';
@@ -305,6 +306,9 @@ function CoachClientSelectPage({
   const [newName, setNewName] = useState('');
   const [newTier, setNewTier] = useState<NonNullable<Client['tier']>>('standard');
   const [newGoal, setNewGoal] = useState('');
+  const [showRecruitmentCode, setShowRecruitmentCode] = useState(false);
+  const [recruitmentQrUrl, setRecruitmentQrUrl] = useState('');
+  const [showTodayWorkstation, setShowTodayWorkstation] = useState(true);
   type MembershipLevel = 'standard' | 'advanced' | 'professional' | 'elite';
 
   const genRoadCode = () => {
@@ -346,6 +350,30 @@ function CoachClientSelectPage({
   useEffect(() => {
     refreshClients();
   }, [coachCode]);
+
+  useEffect(() => {
+    if (!showRecruitmentCode || !coachCode) {
+      setRecruitmentQrUrl('');
+      return;
+    }
+    const link = `https://saas.fikafitness.com/survey?coach=${coachCode}`;
+    QRCode.toDataURL(link, { width: 240, margin: 1 })
+      .then((data: string) => {
+        setRecruitmentQrUrl(data);
+      })
+      .catch((e: unknown) => {
+        console.error('[coach-select] recruitment qrcode generate failed', e);
+      });
+  }, [showRecruitmentCode, coachCode]);
+
+  const todayStr = new Date().toLocaleDateString('zh-CN');
+  const todaySessions = clients
+    .map((client) => {
+      const sessions = Array.isArray((client as any).sessions) ? (client as any).sessions : [];
+      const todaySession = sessions.find((s: any) => s?.date && new Date(s.date).toLocaleDateString('zh-CN') === todayStr);
+      return todaySession ? { client, session: todaySession } : null;
+    })
+    .filter(Boolean) as Array<{ client: Client; session: any }>;
 
   const createClient = () => {
     const all = readAllMergedClients().filter((c) => c.name !== '示例客户');
@@ -408,6 +436,33 @@ function CoachClientSelectPage({
     syncClientStores(updated);
     setDeleteTarget(null);
     setDeleteConfirmText('');
+    refreshClients();
+  };
+
+  const markTodaySession = (clientId: string) => {
+    const all = readAllMergedClients();
+    const updated = all.map((c) => {
+      if (c.id !== clientId) return c;
+      const sessions = Array.isArray((c as any).sessions) ? (c as any).sessions : [];
+      return {
+        ...c,
+        sessions: [
+          ...sessions,
+          {
+            date: todayStr,
+            rpe: 0,
+            performance: '',
+            note: '',
+            price: 0,
+            week: (c as any).current_week || 1,
+            level: 1,
+            day: '标记课程',
+            duration: 0,
+          },
+        ],
+      } as Client;
+    });
+    syncClientStores(updated);
     refreshClients();
   };
 
@@ -488,6 +543,16 @@ function CoachClientSelectPage({
             <div className="logo-sub">Coach Pro · Select Client</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {coachCode && (
+              <button
+                className="btn btn-o"
+                style={{ fontSize: 12 }}
+                onClick={() => setShowRecruitmentCode(true)}
+                type="button"
+              >
+                招募码 QR
+              </button>
+            )}
             <button className="btn btn-o" style={{ fontSize: 12 }} onClick={() => setCreateOpen(true)} type="button">
               + 新增客户
             </button>
@@ -498,6 +563,100 @@ function CoachClientSelectPage({
         </div>
 
         <div style={{ marginTop: 14, position: 'relative', padding: 6, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 12 }}>
+            <button
+              type="button"
+              onClick={() => setShowTodayWorkstation((v) => !v)}
+              style={{
+                cursor: 'pointer',
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                fontSize: 14,
+                fontWeight: 700,
+                color: '#1f2435',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>{showTodayWorkstation ? '▾' : '▸'}</span>
+                • TODAY'S WORKSTATION（今日工作台）
+              </div>
+              {todaySessions.length > 0 && (
+                <div style={{
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  background: '#e3f2fd',
+                  color: '#1565c0',
+                  fontSize: 11,
+                  fontWeight: 700,
+                }}>
+                  {todaySessions.length}
+                </div>
+              )}
+            </button>
+
+            {showTodayWorkstation && (
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {todaySessions.length === 0 ? (
+                  <div style={{
+                    padding: 16,
+                    borderRadius: 10,
+                    border: '1px solid rgba(216,221,236,.75)',
+                    background: 'rgba(255,255,255,.55)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                  }}>
+                    <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+                      今日暂无课程 · 可手动标记今天上课的客户
+                    </div>
+                    {clients.map((client) => (
+                      <button
+                        key={client.id}
+                        type="button"
+                        onClick={() => markTodaySession(client.id)}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: 8,
+                          border: '1px solid rgba(216,221,236,.75)',
+                          background: 'rgba(255,255,255,.55)',
+                          color: '#475569',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                        }}
+                      >
+                        标记 {client.name} 今日上课
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  todaySessions.map(({ client, session }) => (
+                    <div
+                      key={client.id}
+                      style={{
+                        padding: 12,
+                        borderRadius: 10,
+                        border: '1px solid rgba(216,221,236,.75)',
+                        background: 'rgba(255,255,255,.55)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2435' }}>{client.name}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>今日课程：{session.day || '训练课'}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
           {clients.length === 0 ? (
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 13, color: '#68708b' }}>当前没有客户，先点右上角“新增客户”。下方是卡片预览样式：</div>
@@ -647,6 +806,59 @@ function CoachClientSelectPage({
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {showRecruitmentCode && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0,0,0,.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 999,
+              }}
+              onClick={() => setShowRecruitmentCode(false)}
+            >
+              <div
+                style={{
+                  background: '#fff',
+                  borderRadius: 12,
+                  padding: 24,
+                  maxWidth: 400,
+                  textAlign: 'center',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>招募二维码</div>
+                {recruitmentQrUrl && (
+                  <div style={{ marginBottom: 16 }}>
+                    <img src={recruitmentQrUrl} alt="recruitment qr" style={{ width: 200, height: 200, display: 'block', margin: '0 auto' }} />
+                  </div>
+                )}
+                <div style={{ fontSize: 12, color: '#999', marginBottom: 16 }}>长按保存二维码分享给客户</div>
+                <button
+                  type="button"
+                  onClick={() => setShowRecruitmentCode(false)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: '#5a41d6',
+                    color: '#fff',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  关闭
+                </button>
+              </div>
             </div>
           )}
 

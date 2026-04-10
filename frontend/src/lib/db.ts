@@ -29,6 +29,11 @@ export type ClientSession = {
   rpe: number;
   performance: string;
   duration: number;
+  hrAvg?: number;
+  hrMax?: number;
+  hrMin?: number;
+  hrZoneDurations?: Record<number, number>;
+  kcal?: number;
   block_index?: number;
   block_week?: number;
 };

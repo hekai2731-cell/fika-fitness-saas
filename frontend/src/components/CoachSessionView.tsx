@@ -46,6 +46,7 @@ interface RecordedSession {
   hrMax?: number;
   hrMin?: number;
   hrZoneDurations?: Record<number, number>;
+  kcal?: number;
   actual_weights?: number[];
   coach_notes?: string;
   post_assessment?: {
@@ -115,96 +116,139 @@ function fmt(secs: number) {
   return `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
 }
 
-// ─── 心率顶栏 ────────────────────────────────────────────────
-function HRTopBar({ hr }: { hr: ReturnType<typeof useHeartRate> }) {
+// ─── 右侧心率模块 ─────────────────────────────────────────────
+function HRTopBar({
+  hr,
+  elapsedSecs,
+  weightKg,
+}: {
+  hr: ReturnType<typeof useHeartRate>;
+  elapsedSecs: number;
+  weightKg: number;
+}) {
   const zone = hr.currentZone;
   const bpm = hr.bpm;
-  const zoneColor = zone ? ZONE_COLORS[zone.zone] : 'rgba(255,255,255,0.3)';
-  const zoneBg = zone ? ZONE_BG[zone.zone] : 'transparent';
+  const hasBpm = typeof bpm === 'number' && bpm > 0;
+  const zoneColor = zone ? ZONE_COLORS[zone.zone] : '#5b63d7';
 
-  // 区间分布（实时）
-  const zd: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-  hr.samples.forEach(s => { if (s.zone) zd[s.zone]++; });
-  const total = hr.samples.length || 1;
+  const profile = hr.profile;
+  const intensity = (() => {
+    if (!hasBpm || !profile) return 0;
+    const range = profile.mhr - profile.rhr;
+    if (!Number.isFinite(range) || range <= 0) return 0;
+    const pct = ((bpm - profile.rhr) / range) * 100;
+    return Math.max(0, Math.min(100, Math.round(pct)));
+  })();
+
+  const met = zone ? ({ 1: 3.5, 2: 5.5, 3: 7.5, 4: 9.5, 5: 11.5 }[zone.zone]) : 3.0;
+  const minutes = elapsedSecs / 60;
+  const kcal = Math.max(0, (met * 3.5 * weightKg / 200) * minutes);
+  const ringPct = Math.max(5, intensity);
+
+  const stats = hr.getStats();
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '0 20px',
-      height: 44,
-      background: 'rgba(255,255,255,0.04)',
-      borderBottom: '1px solid rgba(255,255,255,0.08)',
-      flexShrink: 0,
+      borderRadius: 28,
+      border: '1px solid rgba(216,221,236,0.72)',
+      background: 'rgba(255,255,255,0.5)',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
+      padding: 18,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 14,
+      height: '100%',
+      minHeight: 0,
+      boxSizing: 'border-box',
+      width: '100%',
+      flex: 1,
     }}>
-      {/* 心跳图标 + BPM */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-          stroke={bpm ? zoneColor : 'rgba(255,255,255,0.2)'}
-          strokeWidth="2" strokeLinecap="round" style={{ transition: 'stroke 0.4s' }}>
-          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-        </svg>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-          <span style={{
-            fontSize: 22, fontWeight: 900, fontVariantNumeric: 'tabular-nums',
-            color: bpm ? zoneColor : 'rgba(255,255,255,0.2)',
-            transition: 'color 0.4s', lineHeight: 1,
-            minWidth: 48,
-          }}>{bpm ?? '---'}</span>
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', letterSpacing: '.08em' }}>BPM</span>
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div
+          style={{
+            width: 300,
+            height: 300,
+            borderRadius: '50%',
+            background: `conic-gradient(${zoneColor} ${ringPct}%, #e2e6ef ${ringPct}% 100%)`,
+            display: 'grid',
+            placeItems: 'center',
+            transition: 'all .3s ease',
+            boxShadow: 'inset 0 0 0 1px rgba(143,153,181,.12)',
+          }}
+        >
+          <div
+            style={{
+              width: 228,
+              height: 228,
+              borderRadius: '50%',
+              background: 'radial-gradient(circle at 30% 22%, #ffffff 0%, #f4f6fc 92%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'column',
+              boxShadow: '0 14px 36px rgba(113,123,156,.12)',
+            }}
+          >
+            <div style={{ fontSize: 72, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.02em', color: '#111827', fontVariantNumeric: 'tabular-nums' }}>
+              {hasBpm ? bpm : '--'}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: '#636d84', fontWeight: 700 }}>
+              当前心率 / Current BPM
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* 区间 pill */}
-      {bpm && zone && (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          padding: '3px 10px', borderRadius: 20,
-          background: zoneBg, border: `1px solid ${zoneColor}40`,
-          flexShrink: 0, transition: 'all 0.4s',
+          borderRadius: 14,
+          border: '1px solid rgba(218,223,236,0.8)',
+          background: 'rgba(255,255,255,0.56)',
+          padding: '12px 14px',
+          backdropFilter: 'blur(8px)',
         }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: zoneColor }} />
-          <span style={{ fontSize: 11, fontWeight: 700, color: zoneColor }}>Z{zone.zone}</span>
-          <span style={{ fontSize: 11, color: zoneColor, opacity: 0.85 }}>{zone.label}</span>
+          <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 900, color: '#4f56c8', fontVariantNumeric: 'tabular-nums' }}>{intensity}%</div>
+          <div style={{ marginTop: 4, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: '#6a7288', fontWeight: 700 }}>强度 / Intensity</div>
         </div>
-      )}
-
-      {/* 区间分布进度条 */}
-      {hr.samples.length > 5 && (
-        <div style={{ display: 'flex', gap: 2, width: 140, height: 4, borderRadius: 3, overflow: 'hidden', flexShrink: 0 }}>
-          {[1, 2, 3, 4, 5].map(z => {
-            const pct = (zd[z] / total) * 100;
-            return pct > 0 ? (
-              <div key={z} style={{
-                flex: pct, background: ZONE_COLORS[z], opacity: 0.8,
-                minWidth: 2, borderRadius: 2,
-              }} />
-            ) : null;
-          })}
+        <div style={{
+          borderRadius: 14,
+          border: '1px solid rgba(218,223,236,0.8)',
+          background: 'rgba(255,255,255,0.56)',
+          padding: '12px 14px',
+          backdropFilter: 'blur(8px)',
+        }}>
+          <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 900, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{kcal.toFixed(1)}</div>
+          <div style={{ marginTop: 4, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: '#6a7288', fontWeight: 700 }}>实时消耗 / kcal</div>
         </div>
-      )}
+      </div>
 
-      {/* 体感提示 */}
-      {zone && (
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {zone.description}
-        </span>
-      )}
+      <div style={{ borderRadius: 14, border: '1px solid rgba(218,223,236,0.8)', background: 'rgba(255,255,255,0.56)', padding: '10px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: zone ? zoneColor : '#4f56c8' }}>
+            {zone ? `Z${zone.zone} · ${zone.labelEn}` : '恢复 / Rest'}
+          </div>
+          <div style={{ fontSize: 11, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>时长 {fmt(elapsedSecs)}</div>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 11, color: '#64748b' }}>
+          平均 {stats?.avgBpm ?? '--'} · 最高 {stats?.maxBpm ?? '--'} · 最低 {stats?.minBpm ?? '--'}
+        </div>
+      </div>
 
-      {/* 连接/断开按钮 */}
-      <div style={{ marginLeft: 'auto', flexShrink: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         {hr.status === 'connected' ? (
           <button onClick={hr.disconnect} style={{
-            fontSize: 10, padding: '4px 10px', borderRadius: 7,
-            border: '1px solid rgba(255,255,255,0.15)',
-            background: 'rgba(255,255,255,0.06)',
-            color: 'rgba(255,255,255,0.5)', cursor: 'pointer',
+            fontSize: 12, padding: '7px 12px', borderRadius: 8,
+            border: '1px solid rgba(148,163,184,.42)',
+            background: 'rgba(255,255,255,.72)',
+            color: '#475569', cursor: 'pointer',
           }}>断开心率带</button>
         ) : (
           <button onClick={hr.connect} disabled={hr.status === 'connecting' || hr.status === 'unsupported'} style={{
-            fontSize: 10, padding: '4px 12px', borderRadius: 7,
-            border: '1px solid rgba(255,255,255,0.2)',
-            background: hr.status === 'connecting' ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.2)',
-            color: hr.status === 'connecting' ? 'rgba(255,255,255,0.3)' : 'rgba(167,139,250,0.9)',
+            fontSize: 12, padding: '7px 12px', borderRadius: 8,
+            border: '1px solid rgba(124,58,237,.28)',
+            background: hr.status === 'connecting' ? 'rgba(226,232,240,.8)' : 'rgba(124,58,237,.12)',
+            color: hr.status === 'connecting' ? '#94a3b8' : '#6d28d9',
             cursor: hr.status === 'connecting' ? 'not-allowed' : 'pointer',
           }}>
             {hr.status === 'connecting' ? '连接中...' : '连接心率带'}
@@ -793,6 +837,11 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
       });
     });
 
+    const latestZone = hr.currentZone?.zone;
+    const met = latestZone ? ({ 1: 3.5, 2: 5.5, 3: 7.5, 4: 9.5, 5: 11.5 }[latestZone]) : 3.0;
+    const weightForCalc = Number.isFinite(liveWeight) && liveWeight > 0 ? liveWeight : 65;
+    const sessionKcal = Math.max(0, (met * 3.5 * weightForCalc / 200) * (elapsed / 60));
+
     await onRecordSession({
       date: new Date().toLocaleDateString('zh-CN'),
       week: client.current_week || 1,
@@ -804,6 +853,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
       hrMax: hrStats?.maxBpm,
       hrMin: hrStats?.minBpm,
       hrZoneDurations: hrStats?.zoneDurations,
+      kcal: Number(sessionKcal.toFixed(1)),
       actual_weights: actual_weights.length > 0 ? actual_weights : undefined,
       coach_notes: coachNotes,
       post_assessment: (postAssessment?.weight || postAssessment?.body_fat_pct || postAssessment?.rhr) ? postAssessment : undefined,
@@ -838,6 +888,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
   })();
 
   const nextEx = exercises[curIdx + 1];
+  const liveWeight = Number((client as any)?.profile?.weight ?? (client as any)?.weight ?? 65);
 
   return (
     <div style={{
@@ -851,9 +902,6 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
       <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', flexShrink: 0 }}>
         <div style={{ height: '100%', width: `${progPct}%`, background: '#7C3AED', transition: 'width 0.5s' }} />
       </div>
-
-      {/* ── 心率顶栏 ── */}
-      <HRTopBar hr={hr} />
 
       {/* ── 主体：左栏 + 右主区 ── */}
       {/* iPad 11寸：1180px 宽，左栏 220px，右侧 960px */}
@@ -966,8 +1014,8 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
           </button>
         </div>
 
-        {/* ── 右主区 ── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        {/* ── 中间主区 ── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, borderRight: '1px solid rgba(255,255,255,0.07)' }}>
 
           {/* 模块信息栏 */}
           <div style={{
@@ -1002,14 +1050,15 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
             </span>
           </div>
 
-          {/* 动作信息 + 组数 — iPad 11: 左右分栏 */}
-          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          {/* 动作信息 + 组数：改为上下结构 */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-            {/* 左：动作信息区 */}
+            {/* 上：动作信息区 */}
             <div style={{
-              width: 420, flexShrink: 0, padding: '18px 20px',
-              borderRight: '1px solid rgba(255,255,255,0.06)',
+              width: '100%', flexShrink: 0, padding: '18px 20px',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
               display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto',
+              maxHeight: '52%',
             }}>
               {curEx ? (
                 <>
@@ -1124,7 +1173,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
               )}
             </div>
 
-            {/* 右：组数区 */}
+            {/* 下：组数区 */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
               {/* 组数列头 */}
               <div style={{
@@ -1263,6 +1312,18 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
               取消课程 / Cancel Session
             </button>
           </div>
+        </div>
+
+        {/* ── 右侧：心率实时面板 ── */}
+        <div style={{
+          width: 430,
+          flexShrink: 0,
+          padding: '14px 14px 12px',
+          overflow: 'hidden',
+          background: 'rgba(255,255,255,0.01)',
+          display: 'flex',
+        }}>
+          <HRTopBar hr={hr} elapsedSecs={elapsed} weightKg={Number.isFinite(liveWeight) && liveWeight > 0 ? liveWeight : 65} />
         </div>
       </div>
 

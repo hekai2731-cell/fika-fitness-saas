@@ -2556,7 +2556,7 @@ export function PlanningPage({
 
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>6. 确认课程档位</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                     {[
                       {
                         key: 'standard' as const,

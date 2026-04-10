@@ -153,11 +153,8 @@ export function ClientsPage({
     training_age_months: '',
   });
   const [showTrainingHistory, setShowTrainingHistory] = useState(false);
-  const [showTodayWorkstation, setShowTodayWorkstation] = useState(true);
 
   // 招募码和待审核问卷
-  const [showRecruitmentCode, setShowRecruitmentCode] = useState(false);
-  const [recruitmentQrUrl, setRecruitmentQrUrl] = useState('');
   const [pendingSurveys, setPendingSurveys] = useState<any[]>([]);
   const [expandedSurveyId, setExpandedSurveyId] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
@@ -281,22 +278,6 @@ export function ClientsPage({
     };
     loadPendingSurveys();
   }, [coachCode]);
-
-  // Generate recruitment QR code
-  useEffect(() => {
-    if (!showRecruitmentCode || !coachCode) {
-      setRecruitmentQrUrl('');
-      return;
-    }
-    const link = `https://saas.fikafitness.com/survey?coach=${coachCode}`;
-    QRCode.toDataURL(link, { width: 240, margin: 1 })
-      .then((data: string) => {
-        setRecruitmentQrUrl(data);
-      })
-      .catch((e: unknown) => {
-        console.error('[clients] recruitment qrcode generate failed', e);
-      });
-  }, [showRecruitmentCode, coachCode]);
 
   const activeTier = resolveMembershipLevel(activeClient);
   const tier = tierMeta[activeTier];
@@ -487,126 +468,11 @@ export function ClientsPage({
     { key: 'execution', value: score.breakdown.execution, max: dimMaxMap.execution, available: score.available.execution },
   ] as const;
 
-  // ── 今日工作台逻辑 ──
-  const todayStr = new Date().toLocaleDateString('zh-CN');
-  const todaySessions = (() => {
-    const sessionsWithClients = clients.map(client => {
-      try {
-        const clientSessions = Array.isArray(client.sessions) ? client.sessions : [];
-        const todaySession = clientSessions.find(s => {
-          if (!s?.date) return false;
-          const sessionDate = new Date(s.date).toLocaleDateString('zh-CN');
-          return sessionDate === todayStr;
-        });
-        return todaySession ? { client, session: todaySession } : null;
-      } catch {
-        return null;
-      }
-    }).filter(Boolean) as Array<{ client: Client; session: any }>;
-    return sessionsWithClients;
-  })();
-
-  const markTodaySession = (clientId: string) => {
-    const client = clients.find(c => c.id === clientId);
-    if (!client || !client.sessions) return;
-    const updatedClient = {
-      ...client,
-      sessions: [...client.sessions, { date: todayStr, rpe: 0, performance: '', note: '', price: 0, week: client.current_week || 1, level: 1, day: '标记课程', duration: 0 }],
-    };
-    const updatedClients = clients.map(c => c.id === clientId ? updatedClient : c);
-    setClients(updatedClients);
-    saveClients(updatedClients);
-  };
-
   return (
     <div className="clients-premium">
       {/* Recruitment Code and Pending Surveys Section */}
       {coachCode && (
         <div style={{ display: 'grid', gap: 16, marginBottom: 20, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-          {/* 我的招募码 Button and Modal */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowRecruitmentCode(true)}
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                borderRadius: 12,
-                border: '1px solid rgba(109,84,234,.45)',
-                background: 'rgba(109,84,234,.08)',
-                color: '#5a41d6',
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                (e.target as HTMLButtonElement).style.background = 'rgba(109,84,234,.14)';
-              }}
-              onMouseLeave={(e) => {
-                (e.target as HTMLButtonElement).style.background = 'rgba(109,84,234,.08)';
-              }}
-            >
-              我的招募码 QR
-            </button>
-
-            {showRecruitmentCode && (
-              <div
-                style={{
-                  position: 'fixed',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background: 'rgba(0,0,0,.5)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  zIndex: 999,
-                }}
-                onClick={() => setShowRecruitmentCode(false)}
-              >
-                <div
-                  style={{
-                    background: '#fff',
-                    borderRadius: 12,
-                    padding: 24,
-                    maxWidth: 400,
-                    textAlign: 'center',
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>招募二维码</div>
-                  {recruitmentQrUrl && (
-                    <div style={{ marginBottom: 16 }}>
-                      <img src={recruitmentQrUrl} alt="recruitment qr" style={{ width: 200, height: 200 }} />
-                    </div>
-                  )}
-                  <div style={{ fontSize: 12, color: '#666', marginBottom: 8, wordBreak: 'break-all' }}>
-                    https://saas.fikafitness.com/survey?coach={coachCode}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#999', marginBottom: 16 }}>长按保存二维码分享给客户</div>
-                  <button
-                    type="button"
-                    onClick={() => setShowRecruitmentCode(false)}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 8,
-                      border: 'none',
-                      background: '#5a41d6',
-                      color: '#fff',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    关闭
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* 待审核问卷 Count Badge */}
           {pendingSurveys.length > 0 && (
             <div style={{ position: 'relative' }}>
@@ -835,22 +701,6 @@ export function ClientsPage({
               <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span className="tier-pill" style={{ color: tier.accent, background: tier.soft }}>{tier.cn} / {tier.label} MEMBER</span>
                 <span className="head-loc">上海 / Shanghai, CN</span>
-                <button
-                  type="button"
-                  onClick={() => setShowQrModal(true)}
-                  style={{
-                    borderRadius: 999,
-                    border: `1px solid ${activeClient.profile?.survey_completed_at ? 'rgba(34,197,94,.45)' : 'rgba(109,84,234,.45)'}`,
-                    background: activeClient.profile?.survey_completed_at ? 'rgba(34,197,94,.12)' : 'rgba(109,84,234,.12)',
-                    color: activeClient.profile?.survey_completed_at ? '#15803d' : '#5a41d6',
-                    fontSize: 12,
-                    fontWeight: 800,
-                    padding: '5px 10px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {activeClient.profile?.survey_completed_at ? '已填写 ✓' : '问卷二维码'}
-                </button>
               </div>
             </div>
             <div className="head-week">第 {activeClient.current_week || 1} 周 / Week {activeClient.current_week || 1}</div>
@@ -1071,190 +921,57 @@ export function ClientsPage({
           </div>
         </div>
 
-        {/* 今日工作台 */}
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <button
-            type="button"
-            onClick={() => setShowTodayWorkstation(!showTodayWorkstation)}
-            style={{
-              cursor: 'pointer',
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              fontSize: 14,
-              fontWeight: 700,
-              color: '#1f2435',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              justifyContent: 'space-between',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>{showTodayWorkstation ? '▾' : '▸'}</span>
-              • TODAY'S WORKSTATION（今日工作台）
-            </div>
-            {todaySessions.length > 0 && (
-              <div style={{
-                padding: '2px 8px',
-                borderRadius: 4,
-                background: '#e3f2fd',
-                color: '#1565c0',
-                fontSize: 11,
-                fontWeight: 700,
-              }}>
-                {todaySessions.length}
-              </div>
-            )}
-          </button>
-
-          {showTodayWorkstation && (
-            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {todaySessions.length === 0 ? (
-                <div style={{
-                  padding: 16,
-                  borderRadius: 10,
-                  border: '1px solid rgba(216,221,236,.75)',
-                  background: 'rgba(255,255,255,.55)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                }}>
-                  <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
-                    今日暂无课程 · 可手动标记今天上课的客户
-                  </div>
-                  {clients.map(client => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="section-cap">• MEMBERSHIP TIERS（会员等级）</div>
+            <div className="tiers-stack">
+              {tierOrder.map((key) => {
+                const item = tierMeta[key];
+                const on = key === activeTier;
+                return (
+                  <div key={key} className="tier-item">
                     <button
-                      key={client.id}
                       type="button"
-                      onClick={() => markTodaySession(client.id)}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: 8,
-                        border: '1px solid rgba(216,221,236,.75)',
-                        background: 'rgba(255,255,255,.55)',
-                        color: '#475569',
-                        fontSize: 12,
-                        cursor: 'pointer',
-                        textAlign: 'center',
-                      }}
+                      className={`tier-card tone-${key} ${on ? 'on' : ''}`}
+                      onClick={() => switchTier(key)}
                     >
-                      标记 {client.name} 今日上课
+                      <div className="tier-icon">◆</div>
+                      <div>
+                        <div className="tier-name">{item.cn} / {item.label}</div>
+                        <div className="tier-sub">{item.cn}</div>
+                      </div>
                     </button>
-                  ))}
-                </div>
-              ) : (
-                todaySessions.map(({ client, session }) => {
-                  const clientSessions = Array.isArray(client.sessions) ? client.sessions : [];
-                  const lastSessionIdx = clientSessions.length - 2;
-                  const lastSession = lastSessionIdx >= 0 ? clientSessions[lastSessionIdx] : null;
-                  const daysSinceLastSession = lastSession && lastSession.date
-                    ? (() => {
-                        try {
-                          const diff = new Date().getTime() - new Date(lastSession.date).getTime();
-                          if (!Number.isFinite(diff) || diff < 0) return null;
-                          return Math.floor(diff / (1000 * 60 * 60 * 24));
-                        } catch {
-                          return null;
-                        }
-                      })()
-                    : null;
 
-                  const clientBlocks = Array.isArray(client.blocks) ? client.blocks : [];
-                  const selectedBlock = clientBlocks[0];
-                  const selectedWeeks = selectedBlock && Array.isArray((selectedBlock as any).training_weeks)
-                    ? (selectedBlock as any).training_weeks
-                    : [];
-                  const selectedWeek = selectedWeeks[0] || null;
-                  const selectedDay = selectedWeek ? (selectedWeek.days || []).find((d: any) => d.day === session.day) : null;
-                  const hasPlan = selectedDay && Array.isArray((selectedDay as any).modules) && (selectedDay as any).modules.length > 0;
-
-                  const tier = resolveMembershipLevel(client);
-                  const rpe = lastSession?.rpe || 0;
-                  let rpeColor = '#2e7d32';
-                  if (rpe >= 8) rpeColor = '#c62828';
-                  else if (rpe >= 6) rpeColor = '#1565c0';
-
-                  return (
-                    <div
-                      key={client.id}
-                      style={{
-                        padding: 12,
-                        borderRadius: 10,
-                        border: '1px solid rgba(216,221,236,.75)',
-                        background: 'rgba(255,255,255,.55)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2435' }}>{client.name}</div>
-                          <div style={{
-                            padding: '2px 6px',
-                            borderRadius: 3,
-                            background: tierMeta[tier].soft,
-                            color: tierMeta[tier].accent,
-                            fontSize: 9,
-                            fontWeight: 700,
-                            whiteSpace: 'nowrap',
-                          }}>
-                            {tierMeta[tier].cn}
-                          </div>
+                    {on && (
+                      <div className={`tier-feature tier-feature-inline tone-${key}`}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div className="tier-feature-title">{item.cn} / {item.label} ●</div>
+                          <div style={{ fontSize: 30 }}>◈</div>
                         </div>
-                      </div>
-
-                      {daysSinceLastSession !== null && (
-                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                          距上次上课 {daysSinceLastSession} 天 · 上次RPE <span style={{ color: rpeColor, fontWeight: 700 }}>{rpe}</span>
+                        <div className="tier-compare-list">
+                          <div>体脂率标准：{standards.bf} ｜ 当前：{bfText}</div>
+                          <div>心率目标：{standards.rhr} ｜ 当前：{rhrText}</div>
+                          <div>力量基准：{standards.strength} ｜ 当前：{strengthText}</div>
+                          <div>{score.tier === 'ultra' ? '已达 Ultra 档。' : `距下一档差 ${score.gap_to_next} 分，建议优先提升 ${score.weakest}`}</div>
                         </div>
-                      )}
-
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        background: hasPlan ? 'rgba(34,197,94,.1)' : 'rgba(245,158,11,.1)',
-                        color: hasPlan ? '#16a34a' : '#f59e0b',
-                        fontSize: 11,
-                        fontWeight: 600,
-                      }}>
-                        {hasPlan ? '✓ 已备课' : '⚠ 待生成'}
+                        <Button
+                          type="button"
+                          className="w-full tier-open-btn"
+                          onClick={() => onSelect(activeClient.id)}
+                          style={{ marginTop: 14 }}
+                        >
+                          打开客户训练规划
+                        </Button>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // trigger onOpenSession if available from parent
-                          // For now just select the client
-                          setActiveId(client.id);
-                        }}
-                        style={{
-                          padding: '8px 12px',
-                          borderRadius: 8,
-                          border: 'none',
-                          background: '#7C3AED',
-                          color: '#fff',
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        开始上课
-                      </button>
-                    </div>
-                  );
-                })
-              )}
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          )}
-        </div>
+          </div>
 
-        {/* 训练历史区块 */}
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {/* 训练历史区块 */}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
           <button
             type="button"
             onClick={() => setShowTrainingHistory(!showTrainingHistory)}
@@ -1269,7 +986,7 @@ export function ClientsPage({
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              marginTop: 18,
+              marginTop: 0,
             }}
           >
             <span>{showTrainingHistory ? '▾' : '▸'}</span>
@@ -1396,53 +1113,6 @@ export function ClientsPage({
               )}
             </div>
           )}
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="section-cap">• MEMBERSHIP TIERS（会员等级）</div>
-          <div className="tiers-stack">
-            {tierOrder.map((key) => {
-              const item = tierMeta[key];
-              const on = key === activeTier;
-              return (
-                <div key={key} className="tier-item">
-                  <button
-                    type="button"
-                    className={`tier-card tone-${key} ${on ? 'on' : ''}`}
-                    onClick={() => switchTier(key)}
-                  >
-                    <div className="tier-icon">◆</div>
-                    <div>
-                      <div className="tier-name">{item.cn} / {item.label}</div>
-                      <div className="tier-sub">{item.cn}</div>
-                    </div>
-                  </button>
-
-                  {on && (
-                    <div className={`tier-feature tier-feature-inline tone-${key}`}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div className="tier-feature-title">{item.cn} / {item.label} ●</div>
-                        <div style={{ fontSize: 30 }}>◈</div>
-                      </div>
-                      <div className="tier-compare-list">
-                        <div>体脂率标准：{standards.bf} ｜ 当前：{bfText}</div>
-                        <div>心率目标：{standards.rhr} ｜ 当前：{rhrText}</div>
-                        <div>力量基准：{standards.strength} ｜ 当前：{strengthText}</div>
-                        <div>{score.tier === 'ultra' ? '已达 Ultra 档。' : `距下一档差 ${score.gap_to_next} 分，建议优先提升 ${score.weakest}`}</div>
-                      </div>
-                      <Button
-                        type="button"
-                        className="w-full tier-open-btn"
-                        onClick={() => onSelect(activeClient.id)}
-                        style={{ marginTop: 14 }}
-                      >
-                        打开客户训练规划
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>
@@ -1476,8 +1146,10 @@ export function ClientsPage({
             {activeClient.profile?.survey_completed_at && (
               <div style={{ marginTop: 6, fontSize: 12, color: '#15803d', fontWeight: 700 }}>
                 已填写时间：{(() => {
+                  const completedAt = activeClient.profile?.survey_completed_at;
+                  if (!completedAt) return '时间无效';
                   try {
-                    return new Date(activeClient.profile.survey_completed_at).toLocaleString('zh-CN');
+                    return new Date(completedAt).toLocaleString('zh-CN');
                   } catch {
                     return '时间无效';
                   }
