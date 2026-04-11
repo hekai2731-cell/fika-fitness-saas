@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import { Button } from '@/components/ui/button';
 import type { Client } from '@/lib/db';
 import { calcBodyAssetScore } from '@/lib/bodyAssetScore';
-import { loadClients, saveClient as saveClientAsync, saveClients } from '@/lib/store';
+import { getClientsFromCache, saveClient as saveClientAsync } from '@/lib/store';
 
 type MembershipLevel = 'standard' | 'advanced' | 'professional' | 'elite';
 
@@ -192,13 +192,13 @@ export function ClientsPage({
   };
 
   useEffect(() => {
-    const list = loadClients().filter((c) => c.name !== '示例客户');
+    const list = getClientsFromCache().filter((c) => c.name !== '示例客户');
     setClients(list);
     if (list.length > 0) {
       if (selectedClientId && list.some((c) => c.id === selectedClientId)) setActiveId(selectedClientId);
       else setActiveId(list[0].id);
     }
-  }, []);
+  }, [selectedClientId]);
 
   useEffect(() => {
     if (!selectedClientId) return;
@@ -238,8 +238,9 @@ export function ClientsPage({
   const persistClient = (next: Client) => {
     const updatedClients = clients.map((c) => (c.id === next.id ? next : c));
     setClients(updatedClients);
-    saveClients(updatedClients);
-    saveClientAsync(next);  // 保证异步保存完成
+    void saveClientAsync(next).catch((err) => {
+      console.error('[ClientsPage] Failed to save client:', err);
+    });
   };
 
   const activeClient = useMemo(() => clients.find((c) => c.id === activeId) || clients[0] || null, [clients, activeId]);
@@ -293,7 +294,6 @@ export function ClientsPage({
       // 同步更新本地状态
       const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
       setClients(updatedClients);
-      saveClients(updatedClients);
 
       // 等待异步保存完成
       await saveClientAsync(updatedClient);

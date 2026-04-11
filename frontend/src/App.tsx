@@ -16,9 +16,8 @@ import { PlanningPage } from './components/coach/PlanningPage';
 import { FinancePage } from './components/coach/FinancePage';
 import { HeartRatePage } from './components/coach/HeartRatePage';
 import { DietPage } from './components/coach/DietPage';
-import { getCoachesFromCache, loadClients, loadClientsAsync, loadCoaches, saveClient, saveClients } from '@/lib/store';
+import { getClientsFromCache, getCoachesFromCache, loadClients, loadCoaches, saveClient, updateClientsCache } from '@/lib/store';
 import { calcLtvScore } from '@/lib/ltvScore';
-import { initSync } from '@/lib/sync';
 import QRCode from 'qrcode';
 // ↓ 新增两个组件 import
 import { StudentPortal } from './components/student/StudentPortal';
@@ -317,34 +316,19 @@ function CoachClientSelectPage({
   };
 
   const syncClientStores = (nextClients: Client[]) => {
-    saveClients(nextClients);
-    const legacy = lsGet<any[]>('clients', []);
-    const map = new Map<string, any>();
-    legacy.forEach((c) => map.set(c.id, c));
-    nextClients.forEach((c) => map.set(c.id, { ...map.get(c.id), ...c, roadCode: (c as any).roadCode || map.get(c.id)?.roadCode || genRoadCode() }));
-    lsSet('clients', Array.from(map.values()));
+    updateClientsCache(nextClients);
   };
 
   const refreshClients = () => {
-    const coach = loadClients().filter((c) => c.name !== '示例客户');
-    const legacy = lsGet<any[]>('clients', []).filter((c) => c.name !== '示例客户');
-    const map = new Map<string, any>();
-    legacy.forEach((c) => map.set(c.id, c));
-    coach.forEach((c) => map.set(c.id, { ...map.get(c.id), ...c, roadCode: (c as any).roadCode || map.get(c.id)?.roadCode || genRoadCode() }));
-    const merged = Array.from(map.values()) as Client[];
-    const activeClients = merged.filter((c: any) => !(c as any).deletedAt);
+    const cached = getClientsFromCache().filter((c) => c.name !== '示例客户');
+    const activeClients = cached.filter((c: any) => !(c as any).deletedAt);
     const visible = coachCode ? activeClients.filter((c: any) => String(c.coachCode || '') === String(coachCode)) : activeClients;
     setClients(visible);
-    if (merged.length > 0) syncClientStores(merged);
   };
 
   const readAllMergedClients = () => {
-    const coach = loadClients().filter((c) => c.name !== '示例客户');
-    const legacy = lsGet<any[]>('clients', []).filter((c) => c.name !== '示例客户');
-    const map = new Map<string, any>();
-    legacy.forEach((c) => map.set(c.id, c));
-    coach.forEach((c) => map.set(c.id, { ...map.get(c.id), ...c, roadCode: (c as any).roadCode || map.get(c.id)?.roadCode || genRoadCode() }));
-    return Array.from(map.values()) as Client[];
+    const cached = getClientsFromCache().filter((c) => c.name !== '示例客户');
+    return cached as Client[];
   };
 
   useEffect(() => {
@@ -1096,7 +1080,7 @@ function CoachPortal({
 
   const canAccessClient = (clientId: string | null) => {
     if (!clientId) return false;
-    const target = loadClients().find((c) => c.id === clientId);
+    const target = getClientsFromCache().find((c) => c.id === clientId);
     if (!target) return false;
     if (!coachCode) return true;
     return String((target as any).coachCode || '') === String(coachCode);
@@ -1227,7 +1211,7 @@ function App() {
 
         // 从服务器拉取客户和教练数据
         await Promise.all([
-          loadClientsAsync().catch((err: any) => {
+          loadClients().catch((err: any) => {
             console.warn('[app] Failed to load clients:', err);
           }),
           loadCoaches().catch((err: any) => {
@@ -1289,27 +1273,13 @@ function App() {
         // ignore
       }
 
-      // 初始化数据同步服务
+      // Load initial data from server
       try {
-        const isProduction = import.meta.env.PROD;
-        let apiBase;
-
-        if (isProduction) {
-          apiBase = '';
-        } else {
-          apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
-        }
-
-        const tempUserId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-        initSync({
-          apiBase,
-          tempUserId,
-        });
-
-        console.log('[app] Data sync service initialized with API base:', apiBase || '(relative paths)');
+        await loadClients();
+        await loadCoaches();
+        console.log('[app] Initial data loaded from server');
       } catch (error) {
-        console.warn('[app] Failed to initialize sync service:', error);
+        console.warn('[app] Failed to load initial data from server:', error);
       }
     })();
 

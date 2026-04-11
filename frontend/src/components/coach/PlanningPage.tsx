@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { CardDescription, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import type { Block, Client, TrainingDay, TrainingWeek } from '@/lib/db';
-import { getClient, loadClients, saveClients } from '@/lib/store';
+import { getClientsFromCache, saveClient, updateClientsCache } from '@/lib/store';
 
 // ─── 工具 ──────────────────────────────────────────────────────────────────────
 function cn(...parts: Array<string | false | null | undefined>) {
@@ -678,15 +678,16 @@ export function PlanningPage({
   const [preSessionPreviewOpen, setPreSessionPreviewOpen] = useState(false);
 
   useEffect(() => {
-    const list = loadClients();
+    const list = getClientsFromCache();
     const visible = list.filter(c => c.name !== '示例客户');
     if (!selectedClientId && visible.length > 0) onSelectClient(visible[0].id);
   }, [onSelectClient, selectedClientId]);
 
   useEffect(() => {
     if (!selectedClientId) { setClient(null); return; }
-    const c = getClient(selectedClientId);
-    setClient(c);
+    const list = getClientsFromCache();
+    const c = list.find(cl => cl.id === selectedClientId);
+    setClient(c || null);
     setTierOverride(c?.tier || 'standard');
     const blk = c?.blocks?.[0];
     const wk = blk?.training_weeks?.[0];
@@ -746,7 +747,7 @@ export function PlanningPage({
 
   // ── 持久化 ──────────────────────────────────────────────────
   const persistClient = (next: Client) => {
-    const all = loadClients();
+    const all = getClientsFromCache();
     const idx = all.findIndex(c => c.id === next.id);
     const prev = idx >= 0 ? all[idx] : null;
     const blocksChanged = JSON.stringify(prev?.blocks || []) !== JSON.stringify(next.blocks || []);
@@ -770,7 +771,10 @@ export function PlanningPage({
 
     if (idx >= 0) all[idx] = merged;
     else all.push(merged);
-    saveClients(all);
+    updateClientsCache(all);
+    void saveClient(merged).catch((err) => {
+      console.error('[PlanningPage] Failed to save client:', err);
+    });
     setClient(merged);
   };
 

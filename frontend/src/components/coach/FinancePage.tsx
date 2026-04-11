@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { loadClients, saveClients } from '@/lib/store';
+import { getClientsFromCache, saveClient, updateClientsCache } from '@/lib/store';
 import type { Client } from '@/lib/db';
 
 const SESSION_PRICE: Record<string, number> = {
@@ -76,7 +76,7 @@ export function FinancePage({ selectedClientId }: { selectedClientId: string | n
   const [showPayForm, setShowPayForm] = useState(false);
 
   useEffect(() => {
-    const list = loadClients();
+    const list = getClientsFromCache();
     if (!selectedClientId) {
       setClient(list[0] || null);
       return;
@@ -85,10 +85,13 @@ export function FinancePage({ selectedClientId }: { selectedClientId: string | n
   }, [selectedClientId]);
 
   const persistClient = (next: Client) => {
-    const all = loadClients();
+    const all = getClientsFromCache();
     const idx = all.findIndex((c) => c.id === next.id);
     if (idx >= 0) all[idx] = next;
-    saveClients(all);
+    updateClientsCache(all);
+    void saveClient(next).catch((err) => {
+      console.error('[FinancePage] Failed to save client:', err);
+    });
     setClient(next);
   };
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { loadClients, saveClients } from '@/lib/store';
+import { getClientsFromCache, saveClient, updateClientsCache } from '@/lib/store';
 import type { Client } from '@/lib/db';
 
 interface MacroTarget {
@@ -284,7 +284,7 @@ export function DietPage({ selectedClientId }: { selectedClientId: string | null
   const apiUrl = (path: string) => (apiBase ? String(apiBase).replace(/\/$/, '') + path : path);
 
   useEffect(() => {
-    const list = loadClients();
+    const list = getClientsFromCache();
     if (!selectedClientId) {
       setClient(list[0] || null);
       return;
@@ -293,10 +293,13 @@ export function DietPage({ selectedClientId }: { selectedClientId: string | null
   }, [selectedClientId]);
 
   const persistClient = (next: Client) => {
-    const all = loadClients();
+    const all = getClientsFromCache();
     const idx = all.findIndex(c => c.id === next.id);
     if (idx >= 0) all[idx] = next;
-    saveClients(all);
+    updateClientsCache(all);
+    void saveClient(next).catch((err) => {
+      console.error('[DietPage] Failed to save client:', err);
+    });
     setClient(next);
   };
 

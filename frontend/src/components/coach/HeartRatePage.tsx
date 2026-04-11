@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useHeartRate } from '@/hooks/useHeartRate';
 import { buildHRProfile, ZONE_COLORS, type HRProfile } from '@/lib/heartRateUtils';
 import type { Client } from '@/lib/db';
-import { loadClients } from '@/lib/store';
+import { getClientsFromCache } from '@/lib/store';
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; color: string; bg: string }> = {
@@ -44,7 +44,7 @@ export function HeartRatePage({ selectedClientId }: { selectedClientId: string |
   const hr = useHeartRate();
 
   useEffect(() => {
-    const list = loadClients();
+    const list = getClientsFromCache();
     if (!selectedClientId) {
       setSelectedClient(list[0] || null);
       return;
