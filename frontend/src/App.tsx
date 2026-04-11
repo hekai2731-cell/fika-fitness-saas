@@ -1092,29 +1092,26 @@ function CoachPortal({
         client={sessionClient}
         onClose={() => setSessionOpen(false)}
         onRecordSession={async (session) => {
+          if (!sessionClient) return;
           // 更新教练端客户数据
-          setSessionClient((prev) => (prev ? { ...prev, sessions: [...(prev.sessions || []), session] } : prev));
-          
-          // 同步到全局客户数据，确保学生端能看到
-          const allClients = JSON.parse(localStorage.getItem('fika_clients') || '[]');
-          const clientIndex = allClients.findIndex((c: any) => c.id === sessionClient?.id || c.roadCode === sessionClient?.roadCode);
-          if (clientIndex !== -1) {
-            allClients[clientIndex] = {
-              ...allClients[clientIndex],
-              sessions: [...(allClients[clientIndex].sessions || []), session],
-            };
-            localStorage.setItem('fika_clients', JSON.stringify(allClients));
-          }
+          const updated: Client = {
+            ...sessionClient,
+            sessions: [...(sessionClient.sessions || []), session],
+          };
+          setSessionClient(updated);
 
-          // 同时更新教练端的客户数据存储
-          const coachClients = JSON.parse(localStorage.getItem('fika_coach_clients_v1') || '[]');
-          const coachClientIndex = coachClients.findIndex((c: any) => c.id === sessionClient?.id || c.roadCode === sessionClient?.roadCode);
-          if (coachClientIndex !== -1) {
-            coachClients[coachClientIndex] = {
-              ...coachClients[coachClientIndex],
-              sessions: [...(coachClients[coachClientIndex].sessions || []), session],
-            };
-            localStorage.setItem('fika_coach_clients_v1', JSON.stringify(coachClients));
+          // 保存到服务器
+          try {
+            await saveClient(updated);
+            console.log('[app] Session saved to server:', session);
+            // 更新缓存
+            const all = getClientsFromCache();
+            const idx = all.findIndex(c => c.id === updated.id);
+            if (idx >= 0) all[idx] = updated;
+            else all.push(updated);
+            updateClientsCache(all);
+          } catch (err) {
+            console.error('[app] Failed to save session:', err);
           }
         }}
       />
