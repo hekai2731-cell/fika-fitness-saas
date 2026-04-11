@@ -1930,7 +1930,14 @@ export function PlanningPage({
                     <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--s900)', marginTop: 4 }}>本周重点介绍</div>
                     <div style={{ fontSize: 11, color: 'var(--s500)', fontWeight: 700, letterSpacing: '.08em', marginTop: 4 }}>WEEKLY FOCUS OVERVIEW</div>
                     <div style={{ fontSize: 13, color: 'var(--s700)', marginTop: 10, lineHeight: 1.65 }}>
-                      {(selectedWeek as any)?.week_theme || '本周重点聚焦动作质量与强度推进，保持恢复节奏。'}
+                      {(() => {
+                        const theme = (selectedWeek as any)?.week_theme;
+                        if (!theme) return '本周重点聚焦动作质量与强度推进，保持恢复节奏。';
+                        if (typeof theme === 'object' && theme !== null) {
+                          return Object.values(theme).map((v: any) => v?.day_focus || '').filter(Boolean).join(' · ') || '本周重点聚焦动作质量与强度推进，保持恢复节奏。';
+                        }
+                        return String(theme);
+                      })()}
                     </div>
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                       <span className="badge bp">VOLUME: MODERATE</span>
@@ -2116,7 +2123,13 @@ export function PlanningPage({
                         borderLeft: '2px solid #a855f7',
                         color: 'var(--s700)',
                       }}>
-                        {(selectedWeek as any).week_brief}
+                        {(() => {
+                          const brief = (selectedWeek as any).week_brief;
+                          if (typeof brief === 'object' && brief !== null) {
+                            return Object.values(brief).map((v: any) => typeof v === 'string' ? v : (v?.brief || v?.focus || '')).filter(Boolean).join(' · ');
+                          }
+                          return String(brief || '');
+                        })()}
                       </div>
                     </div>
                   )}
