@@ -677,6 +677,40 @@ export function PlanningPage({
   const [loadingDay, setLoadingDay] = useState(false);
   const [loadingWeek, setLoadingWeek] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
+
+  // ── AI 生成分步提示词 ────────────────────────────────
+  const AI_STEPS_DAY  = ['分析客户历史数据...', '生成训练模块框架...', '优化动作细节...', '即将完成...'] as const;
+  const AI_STEPS_WEEK = ['读取近期训练记录...', '规划本周训练节奏...', '生成训练日大纲...', '即将完成...'] as const;
+  const AI_STEPS_FULL = ['分析客户身体资产...', '规划 Block 周期节奏...', '生成每周训练主题...', '即将完成...'] as const;
+  const [aiStepDay,  setAiStepDay]  = useState(0);
+  const [aiStepWeek, setAiStepWeek] = useState(0);
+  const [aiStepFull, setAiStepFull] = useState(0);
+  const aiStepDayRef  = useRef<number | null>(null);
+  const aiStepWeekRef = useRef<number | null>(null);
+  const aiStepFullRef = useRef<number | null>(null);
+  const startAiSteps = (kind: 'day' | 'week' | 'full') => {
+    const [setStep, ref, len] =
+      kind === 'day'  ? [setAiStepDay,  aiStepDayRef,  AI_STEPS_DAY.length]  :
+      kind === 'week' ? [setAiStepWeek, aiStepWeekRef, AI_STEPS_WEEK.length] :
+                        [setAiStepFull, aiStepFullRef, AI_STEPS_FULL.length];
+    setStep(0);
+    let i = 0;
+    (ref as React.MutableRefObject<number | null>).current = window.setInterval(() => {
+      i = Math.min(i + 1, len - 1);
+      setStep(i);
+    }, 2000);
+  };
+  const stopAiSteps = (kind: 'day' | 'week' | 'full') => {
+    const [setStep, ref] =
+      kind === 'day'  ? [setAiStepDay,  aiStepDayRef]  :
+      kind === 'week' ? [setAiStepWeek, aiStepWeekRef] :
+                        [setAiStepFull, aiStepFullRef];
+    if ((ref as React.MutableRefObject<number | null>).current !== null) {
+      clearInterval((ref as React.MutableRefObject<number | null>).current!);
+      (ref as React.MutableRefObject<number | null>).current = null;
+    }
+    setStep(0);
+  };
   const [loadingPublish, setLoadingPublish] = useState(false);
   const [loadingRollback, setLoadingRollback] = useState(false);
   const [loadingReviewReady, setLoadingReviewReady] = useState(false);
@@ -1442,6 +1476,7 @@ export function PlanningPage({
     if (!client || !selectedDay || !selectedWeek || !selectedBlock) return;
     const clientIdentifier = String((client as any).roadCode || client.id || 'unknown');
     setLoadingDay(true);
+    startAiSteps('day');
     setError(null);
     try {
       // 提取最近5次数据
@@ -1498,6 +1533,7 @@ export function PlanningPage({
       });
       setError('生成失败：' + errorMessage);
     } finally {
+      stopAiSteps('day');
       setLoadingDay(false);
     }
   };
@@ -1656,6 +1692,7 @@ export function PlanningPage({
     if (!client || !selectedWeek || !selectedBlock) return;
     const clientIdentifier = String((client as any).roadCode || client.id || 'unknown');
     setLoadingWeek(true);
+    startAiSteps('week');
     setGeneratedPreview({ type: 'week', data: null, loading: true, error: null });
     try {
       // 提取最近5次数据
@@ -1760,6 +1797,7 @@ export function PlanningPage({
       });
       setError('周计划生成失败：' + errorMessage);
     } finally {
+      stopAiSteps('week');
       setLoadingWeek(false);
     }
   };
@@ -1807,6 +1845,7 @@ export function PlanningPage({
     if (!client) return;
     const clientIdentifier = String((client as any).roadCode || client.id || 'unknown');
     setLoadingFull(true);
+    startAiSteps('full');
     setError(null);
     try {
       const weeksTotal = (client as any).weeks_total ?? (client as any).weeksTotal ?? (client as any).weeks ?? 12;
@@ -1916,6 +1955,7 @@ export function PlanningPage({
       });
       setError('完整规划生成失败：' + errorMessage);
     } finally {
+      stopAiSteps('full');
       setLoadingFull(false);
     }
   };
@@ -1969,6 +2009,11 @@ export function PlanningPage({
             ) : '✨ AI block'}
           </Button>
         </div>
+        {loadingFull && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--s400)', textAlign: 'right', minHeight: 16, transition: 'opacity .3s' }}>
+            {AI_STEPS_FULL[aiStepFull]}
+          </div>
+        )}
         {error && (
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--r)', padding: '6px 10px', background: 'var(--r2)', borderRadius: 6 }}>
             {error}
@@ -2035,6 +2080,11 @@ export function PlanningPage({
               ) : '✨ AI 生成周规划'}
             </Button>
           </div>
+          {loadingWeek && (
+            <div style={{ marginTop: 4, fontSize: 11, color: 'var(--s400)', textAlign: 'right', minHeight: 16, transition: 'opacity .3s' }}>
+              {AI_STEPS_WEEK[aiStepWeek]}
+            </div>
+          )}
 
           <div className="week-picker-wrap">
             <div className="week-picker-head">
@@ -2238,6 +2288,11 @@ export function PlanningPage({
                   ) : '⚡ AI 生成单次训练'}
                 </Button>
               </div>
+              {loadingDay && (
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--s400)', textAlign: 'right', minHeight: 16, transition: 'opacity .3s' }}>
+                  {AI_STEPS_DAY[aiStepDay]}
+                </div>
+              )}
             </div>
 
             {/* 课前速览面板 */}
