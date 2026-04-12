@@ -91,8 +91,8 @@ export function calcBodyAssetScore(client: Client): {
     available.performance = sessions.length > 0 && hasRhr;
   }
 
-  const dailyLogs: Array<{ date?: string; totalProtein?: number }> = Array.isArray((client as any).dailyLogs)
-    ? (client as any).dailyLogs
+  const dailyLogs: Array<{ date?: string; totalProtein?: number }> = Array.isArray(client.dailyLogs)
+    ? client.dailyLogs
     : [];
   const recentLogs = dailyLogs
     .filter((d) => now - parseDateSafe(d.date) <= 7 * 24 * 60 * 60 * 1000)
@@ -106,7 +106,7 @@ export function calcBodyAssetScore(client: Client): {
     available.nutrition = true;
   }
 
-  const recentRpe = sessions.slice(-5).map((s) => Number((s as any).rpe || 0)).filter((n) => n > 0);
+  const recentRpe = sessions.slice(-5).map((s) => Number(s.rpe || 0)).filter((n) => n > 0);
   const hasSleep = typeof body.sleep_hours === 'number' && Number.isFinite(body.sleep_hours);
   if (hasSleep || recentRpe.length > 0) {
     let sleepScore = 0;

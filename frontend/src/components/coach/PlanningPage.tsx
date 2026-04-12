@@ -77,6 +77,7 @@ interface PlanConfirmForm {
   todayStatus: string;
   discomfortAreas: string[];
   sessionGoal: string;
+  sessionDurationMinutes: string;
   preSessionNote: string;
 }
 
@@ -87,6 +88,14 @@ const PLAN_FREQUENCY_OPTIONS: Array<{ value: string; label: string; desc: string
   { value: '3', label: '3次/周', desc: '稳步提升' },
   { value: '4', label: '4次/周', desc: '进阶训练' },
   { value: '5', label: '5+次/周', desc: '高频冲刺' },
+];
+
+const WEEK_SESSION_COUNT_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
+  { value: '1', label: '1节', desc: '恢复优先' },
+  { value: '2', label: '2节', desc: '基础维持' },
+  { value: '3', label: '3节', desc: '稳步提升' },
+  { value: '4', label: '4节', desc: '进阶训练' },
+  { value: '5', label: '5节', desc: '高频冲刺' },
 ];
 
 const WEEK_DIRECTION_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
@@ -120,6 +129,12 @@ const SESSION_GOAL_OPTIONS: Array<{ value: string; label: string; desc: string }
   { value: 'recovery', label: '恢复激活', desc: '低强度恢复为主' },
 ];
 
+const SESSION_DURATION_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
+  { value: '50', label: '50分钟', desc: '精简高效' },
+  { value: '60', label: '60分钟', desc: '标准课时' },
+  { value: '70', label: '70分钟', desc: '扩展课时' },
+];
+
 const defaultPlanConfirmForm: PlanConfirmForm = {
   clientNeeds: '',
   priorityGoals: [],
@@ -133,6 +148,7 @@ const defaultPlanConfirmForm: PlanConfirmForm = {
   todayStatus: '正常',
   discomfortAreas: ['无不适'],
   sessionGoal: 'strength',
+  sessionDurationMinutes: '60',
   preSessionNote: '',
 };
 
@@ -657,6 +673,12 @@ export function PlanningPage({
   const [loadingDay, setLoadingDay] = useState(false);
   const [loadingWeek, setLoadingWeek] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
+  const [loadingPublish, setLoadingPublish] = useState(false);
+  const [loadingRollback, setLoadingRollback] = useState(false);
+  const [loadingReviewReady, setLoadingReviewReady] = useState(false);
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
+  const [rollbackPickerOpen, setRollbackPickerOpen] = useState(false);
+  const [rollbackVersion, setRollbackVersion] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
@@ -745,6 +767,65 @@ export function PlanningPage({
     };
   }, [client?.sessions]);
 
+  const publishDiffSummary = useMemo(() => {
+    const draftBlocks = Array.isArray(client?.blocks) ? client.blocks : [];
+    const publishedBlocks = Array.isArray(client?.published_blocks) ? client.published_blocks : [];
+
+    const countWeeks = (blocks: Block[]) => blocks.reduce((sum, b) => sum + (Array.isArray(b.training_weeks) ? b.training_weeks.length : 0), 0);
+    const countDays = (blocks: Block[]) =>
+      blocks.reduce(
+        (sum, b) =>
+          sum +
+          (Array.isArray(b.training_weeks)
+            ? b.training_weeks.reduce((inner, w) => inner + (Array.isArray(w.days) ? w.days.length : 0), 0)
+            : 0),
+        0,
+      );
+
+    const mapDays = (blocks: Block[]) => {
+      const m = new Map<string, string>();
+      blocks.forEach((b, bi) => {
+        (b.training_weeks || []).forEach((w, wi) => {
+          (w.days || []).forEach((d, di) => {
+            const key = `${b.title || `Block${bi + 1}`}::${w.week_num || wi + 1}::${d.day || `Day${di + 1}`}`;
+            const value = `${d.name || ''}|${d.focus || ''}|${Array.isArray((d as any).modules) ? (d as any).modules.length : 0}`;
+            m.set(key, value);
+          });
+        });
+      });
+      return m;
+    };
+
+    const draftMap = mapDays(draftBlocks);
+    const publishedMap = mapDays(publishedBlocks);
+    const allKeys = new Set([...draftMap.keys(), ...publishedMap.keys()]);
+    let changedDays = 0;
+    for (const key of allKeys) {
+      if (draftMap.get(key) !== publishedMap.get(key)) changedDays += 1;
+    }
+
+    return [
+      `Block：草稿 ${draftBlocks.length} / 已发布 ${publishedBlocks.length}`,
+      `Week：草稿 ${countWeeks(draftBlocks)} / 已发布 ${countWeeks(publishedBlocks)}`,
+      `Day：草稿 ${countDays(draftBlocks)} / 已发布 ${countDays(publishedBlocks)}`,
+      `预计受影响训练日：${changedDays}`,
+    ];
+  }, [client?.blocks, client?.published_blocks]);
+
+  const publishHistoryOptions = useMemo(() => {
+    const history = Array.isArray(client?.plan_publish_history) ? client.plan_publish_history : [];
+    return [...history].sort((a, b) => Number(b?.version || 0) - Number(a?.version || 0));
+  }, [client?.plan_publish_history]);
+
+  useEffect(() => {
+    if (!rollbackPickerOpen) return;
+    if (rollbackVersion) return;
+    const fallback = publishHistoryOptions.find((item) => Number(item?.version || 0) !== Number(client?.plan_published_version || 0));
+    if (fallback?.version != null) {
+      setRollbackVersion(String(fallback.version));
+    }
+  }, [rollbackPickerOpen, rollbackVersion, publishHistoryOptions, client?.plan_published_version]);
+
   // ── 持久化 ──────────────────────────────────────────────────
   const persistClient = (next: Client) => {
     const all = getClientsFromCache();
@@ -757,12 +838,14 @@ export function PlanningPage({
       const prevDraft = Number(prev?.plan_draft_version || 0);
       const nextDraft = Number(merged.plan_draft_version || 0);
       merged.plan_draft_version = Math.max(prevDraft + 1, nextDraft || 1);
+      merged.plan_draft_status = 'draft';
       merged.plan_updated_at = new Date().toISOString();
       if (merged.plan_published_version == null) merged.plan_published_version = Number(prev?.plan_published_version || 0);
       if (merged.published_blocks == null && prev?.published_blocks) merged.published_blocks = prev.published_blocks;
       if (merged.plan_published_at == null && prev?.plan_published_at) merged.plan_published_at = prev.plan_published_at;
     } else {
       if (merged.plan_draft_version == null) merged.plan_draft_version = Number(prev?.plan_draft_version || 1);
+      if (merged.plan_draft_status == null) merged.plan_draft_status = (prev as any)?.plan_draft_status || 'draft';
       if (merged.plan_published_version == null) merged.plan_published_version = Number(prev?.plan_published_version || 0);
       if (merged.plan_updated_at == null && prev?.plan_updated_at) merged.plan_updated_at = prev.plan_updated_at;
       if (merged.plan_published_at == null && prev?.plan_published_at) merged.plan_published_at = prev.plan_published_at;
@@ -778,19 +861,7 @@ export function PlanningPage({
     setClient(merged);
   };
 
-  const publishPlanToStudent = () => {
-    if (!client) return;
-    const draftVersion = Number(client.plan_draft_version || 1);
-    const publishedBlocks = JSON.parse(JSON.stringify(client.blocks || [])) as Block[];
-    const publishedAt = new Date().toISOString();
-    const next: Client = {
-      ...client,
-      published_blocks: publishedBlocks,
-      plan_published_version: draftVersion,
-      plan_published_at: publishedAt,
-    };
-    persistClient(next);
-
+  const syncClientMirrorToLocal = (next: Client) => {
     try {
       const studentClients: Client[] = JSON.parse(localStorage.getItem('fika_clients') || '[]');
       const matchIdx = studentClients.findIndex(
@@ -800,17 +871,13 @@ export function PlanningPage({
       if (matchIdx >= 0) {
         studentClients[matchIdx] = {
           ...studentClients[matchIdx],
-          published_blocks: publishedBlocks,
-          plan_published_version: draftVersion,
-          plan_published_at: publishedAt,
+          published_blocks: next.published_blocks,
+          plan_draft_status: next.plan_draft_status,
+          plan_published_version: next.plan_published_version,
+          plan_published_at: next.plan_published_at,
         };
       } else {
-        studentClients.push({
-          ...next,
-          published_blocks: publishedBlocks,
-          plan_published_version: draftVersion,
-          plan_published_at: publishedAt,
-        });
+        studentClients.push(next);
       }
 
       localStorage.setItem('fika_clients', JSON.stringify(studentClients));
@@ -818,6 +885,74 @@ export function PlanningPage({
       window.dispatchEvent(new Event('storage'));
     } catch {
       // ignore sync errors to avoid blocking coach-side publish action
+    }
+  };
+
+  const markPlanReviewReady = async () => {
+    if (!client) return;
+    setLoadingReviewReady(true);
+    setError(null);
+    try {
+      const json = await fetchJsonOrThrow(apiUrl(`/api/clients/${encodeURIComponent(client.id)}/plan/review-ready`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const updated = (json as any)?.client as Client | undefined;
+      if (updated) persistClient(updated);
+    } catch (e: any) {
+      setError('提交待发布失败：' + (e?.message || String(e)));
+    } finally {
+      setLoadingReviewReady(false);
+    }
+  };
+
+  const publishPlanToStudent = async () => {
+    if (!client) return;
+    setLoadingPublish(true);
+    setError(null);
+    try {
+      const json = await fetchJsonOrThrow(apiUrl(`/api/clients/${encodeURIComponent(client.id)}/plan/publish`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          publishedByCoachCode: (client as any).coachCode || '',
+          publishedByCoachName: (client as any).coachName || '',
+        }),
+      });
+      const updated = (json as any)?.client as Client | undefined;
+      if (updated) {
+        persistClient(updated);
+        syncClientMirrorToLocal(updated);
+        setPublishConfirmOpen(false);
+      }
+    } catch (e: any) {
+      setError('发布失败：' + (e?.message || String(e)));
+    } finally {
+      setLoadingPublish(false);
+    }
+  };
+
+  const rollbackPublishedPlan = async (version?: number) => {
+    if (!client) return;
+    setLoadingRollback(true);
+    setError(null);
+    try {
+      const json = await fetchJsonOrThrow(apiUrl(`/api/clients/${encodeURIComponent(client.id)}/plan/rollback`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: version ? JSON.stringify({ version }) : JSON.stringify({}),
+      });
+      const updated = (json as any)?.client as Client | undefined;
+      if (updated) {
+        persistClient(updated);
+        syncClientMirrorToLocal(updated);
+        setRollbackPickerOpen(false);
+        setRollbackVersion('');
+      }
+    } catch (e: any) {
+      setError('回滚失败：' + (e?.message || String(e)));
+    } finally {
+      setLoadingRollback(false);
     }
   };
 
@@ -859,11 +994,6 @@ export function PlanningPage({
       ),
     };
     persistClient(next);
-  };
-
-  const savePlanNow = () => {
-    if (!client) return;
-    persistClient(client);
   };
 
   const startTrainingNow = () => {
@@ -950,6 +1080,7 @@ export function PlanningPage({
     clientNeeds: planConfirmForm.weekNote.trim() || planConfirmForm.clientNeeds.trim(),
     priorityGoals: planConfirmForm.priorityGoals.length ? planConfirmForm.priorityGoals : planConfirmForm.weekFocusAreas,
     weeklyFrequency: planConfirmForm.weeklyFrequency,
+    sessionDurationMinutes: Number(planConfirmForm.sessionDurationMinutes || 60),
     coachAnalysis: [
       planConfirmForm.coachAnalysis.trim(),
       planConfirmForm.weekDirection ? `周训练方向：${planConfirmForm.weekDirection}` : '',
@@ -966,6 +1097,7 @@ export function PlanningPage({
       todayStatus: planConfirmForm.todayStatus,
       discomfortAreas: planConfirmForm.discomfortAreas,
       sessionGoal: planConfirmForm.sessionGoal,
+      sessionDurationMinutes: Number(planConfirmForm.sessionDurationMinutes || 60),
       coachNote: planConfirmForm.preSessionNote.trim(),
     },
   });
@@ -1741,9 +1873,16 @@ export function PlanningPage({
     }
   };
 
-  const anyLoading = loadingDay || loadingWeek || loadingFull;
+  const anyLoading = loadingDay || loadingWeek || loadingFull || loadingPublish || loadingRollback || loadingReviewReady;
   const draftVersion = Number(client?.plan_draft_version || 1);
   const publishedVersion = Number(client?.plan_published_version || 0);
+  const draftStatusText = client?.plan_draft_status === 'published'
+    ? '已发布'
+    : client?.plan_draft_status === 'review_ready'
+      ? '待发布'
+      : client?.plan_draft_status === 'archived'
+        ? '已归档'
+        : '草稿中';
   const publishedAtText = client?.plan_published_at
     ? new Date(client.plan_published_at).toLocaleString('zh-CN', { hour12: false })
     : '未发布';
@@ -1991,7 +2130,7 @@ export function PlanningPage({
             <div>
               <div className="plan-panel-title">编辑训练内容 Session Details</div>
               <div style={{ marginTop: 4, fontSize: 11, color: 'var(--s500)', letterSpacing: '.03em' }}>
-                草稿 v{draftVersion} · 已发布 v{publishedVersion} · 发布时间 {publishedAtText}
+                状态 {draftStatusText} · 草稿 v{draftVersion} · 已发布 v{publishedVersion} · 发布时间 {publishedAtText}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto', justifyContent: 'flex-end' }}>
@@ -1999,18 +2138,29 @@ export function PlanningPage({
                 <Button
                   type="button"
                   className="h-10 rounded-md border border-input bg-card px-4 text-sm font-semibold text-foreground hover:bg-muted"
-                  onClick={savePlanNow}
-                  disabled={!client}
+                  onClick={loadingReviewReady ? undefined : () => void markPlanReviewReady()}
+                  disabled={!client || loadingReviewReady}
                 >
-                  保存计划
+                  {loadingReviewReady ? '提交中...' : '提交待发布'}
                 </Button>
                 <Button
                   type="button"
                   className="h-10 rounded-md border border-input bg-card px-4 text-sm font-semibold text-foreground hover:bg-muted"
-                  onClick={publishPlanToStudent}
-                  disabled={!client || !(client.blocks || []).length}
+                  onClick={() => setPublishConfirmOpen(true)}
+                  disabled={!client || !(client.blocks || []).length || loadingPublish}
                 >
-                  发布到学员端
+                  {loadingPublish ? '发布中...' : '发布到学员端'}
+                </Button>
+                <Button
+                  type="button"
+                  className="h-10 rounded-md border border-input bg-card px-4 text-sm font-semibold text-foreground hover:bg-muted"
+                  onClick={() => {
+                    setRollbackVersion('');
+                    setRollbackPickerOpen(true);
+                  }}
+                  disabled={!client || publishedVersion <= 0 || loadingRollback}
+                >
+                  {loadingRollback ? '回滚中...' : '回滚上次发布'}
                 </Button>
                 <Button
                   type="button"
@@ -2361,8 +2511,8 @@ export function PlanningPage({
               <div style={{ display: 'grid', gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 本周几节课?</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {PLAN_FREQUENCY_OPTIONS.map((opt) => {
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
+                    {WEEK_SESSION_COUNT_OPTIONS.map((opt) => {
                       const on = planConfirmForm.weeklyFrequency === opt.value;
                       return (
                         <button
@@ -2378,7 +2528,7 @@ export function PlanningPage({
                             cursor: 'pointer',
                           }}
                         >
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#202737' }}>{opt.value} 节</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
                           <div style={{ fontSize: 11, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
                         </button>
                       );
@@ -2578,7 +2728,34 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>5. 教练备注（可选）</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>5. 可用时长</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
+                    {SESSION_DURATION_OPTIONS.map((opt) => {
+                      const on = planConfirmForm.sessionDurationMinutes === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, sessionDurationMinutes: opt.value }))}
+                          style={{
+                            borderRadius: 12,
+                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF',
+                            padding: '8px 6px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
+                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>6. 教练备注（可选）</div>
                   <textarea
                     value={planConfirmForm.preSessionNote}
                     onChange={(e) => setPlanConfirmForm((prev) => ({ ...prev, preSessionNote: e.target.value }))}
@@ -2599,7 +2776,7 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>6. 确认课程档位</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>7. 确认课程档位</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                     {[
                       {
@@ -2874,6 +3051,157 @@ export function PlanningPage({
                 }}
               >
                 确认应用
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {publishConfirmOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(19,24,40,.34)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            zIndex: 60,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setPublishConfirmOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(560px, 100%)',
+              borderRadius: 14,
+              border: '1px solid rgba(202,208,224,.9)',
+              background: '#fff',
+              boxShadow: '0 18px 38px rgba(31,41,74,.22)',
+              padding: 16,
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#202737', marginBottom: 4 }}>发布前差异预览</div>
+            <div style={{ fontSize: 12, color: '#7B8498', marginBottom: 10 }}>确认后将把当前草稿同步到学员端。</div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {publishDiffSummary.map((line) => (
+                <div key={line} style={{ padding: '8px 10px', borderRadius: 8, background: '#F8F9FD', fontSize: 13, color: '#25304A' }}>
+                  {line}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+              <button
+                type="button"
+                onClick={() => setPublishConfirmOpen(false)}
+                style={{
+                  height: 32, borderRadius: 8, border: '1px solid #D9DCE6', background: '#fff', padding: '0 12px',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#4b5565',
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={loadingPublish ? undefined : () => void publishPlanToStudent()}
+                style={{
+                  height: 32, borderRadius: 8, border: 'none', background: '#5d66ed', padding: '0 12px',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#fff',
+                }}
+              >
+                {loadingPublish ? '发布中...' : '确认发布'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rollbackPickerOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(19,24,40,.34)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            zIndex: 60,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setRollbackPickerOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(560px, 100%)',
+              borderRadius: 14,
+              border: '1px solid rgba(202,208,224,.9)',
+              background: '#fff',
+              boxShadow: '0 18px 38px rgba(31,41,74,.22)',
+              padding: 16,
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#202737', marginBottom: 4 }}>选择回滚版本</div>
+            <div style={{ fontSize: 12, color: '#7B8498', marginBottom: 10 }}>请选择要恢复的已发布版本。</div>
+            <div style={{ maxHeight: 220, overflowY: 'auto', display: 'grid', gap: 8 }}>
+              {publishHistoryOptions.length === 0 && (
+                <div style={{ padding: '10px 12px', borderRadius: 8, background: '#F8F9FD', fontSize: 13, color: '#4b5565' }}>
+                  暂无可回滚的历史版本。
+                </div>
+              )}
+              {publishHistoryOptions.map((item) => {
+                const version = Number(item?.version || 0);
+                const selected = rollbackVersion === String(version);
+                const at = item?.published_at ? new Date(item.published_at).toLocaleString('zh-CN', { hour12: false }) : '-';
+                return (
+                  <button
+                    key={`${version}-${at}`}
+                    type="button"
+                    onClick={() => setRollbackVersion(String(version))}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      borderRadius: 10,
+                      border: selected ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                      background: selected ? '#F4F5FF' : '#FFFFFF',
+                      padding: '8px 10px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#202737' }}>版本 v{version}</div>
+                    <div style={{ fontSize: 11, color: '#7B8498', marginTop: 2 }}>发布时间：{at}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+              <button
+                type="button"
+                onClick={() => setRollbackPickerOpen(false)}
+                style={{
+                  height: 32, borderRadius: 8, border: '1px solid #D9DCE6', background: '#fff', padding: '0 12px',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#4b5565',
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={loadingRollback ? undefined : () => void rollbackPublishedPlan(Number(rollbackVersion || 0) || undefined)}
+                disabled={publishHistoryOptions.length === 0 || !rollbackVersion}
+                style={{
+                  height: 32, borderRadius: 8, border: 'none', background: '#5d66ed', padding: '0 12px',
+                  cursor: publishHistoryOptions.length === 0 || !rollbackVersion ? 'not-allowed' : 'pointer',
+                  fontSize: 12, fontWeight: 700, color: '#fff',
+                  opacity: publishHistoryOptions.length === 0 || !rollbackVersion ? 0.5 : 1,
+                }}
+              >
+                {loadingRollback ? '回滚中...' : '确认回滚'}
               </button>
             </div>
           </div>

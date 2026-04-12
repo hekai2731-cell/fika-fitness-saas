@@ -12,10 +12,13 @@ const ClientSchema = new mongoose.Schema({
   tier: { type: String, enum: ['standard', 'pro', 'ultra'], default: 'standard' },
   goal: { type: String },
   weeks: { type: Number, default: 12 },
+  weeks_total: { type: Number },
   injury: { type: String, default: '' },
+  dailyLogs: [{ type: mongoose.Schema.Types.Mixed }],
   
   // 教练关联
   coachCode: { type: String, required: false, default: '' },
+  coachName: { type: String, default: '' },
   
   // 训练数据
   blocks: [{ type: mongoose.Schema.Types.Mixed }],
@@ -40,8 +43,11 @@ const ClientSchema = new mongoose.Schema({
   // 发布相关
   published_blocks: [{ type: mongoose.Schema.Types.Mixed }],
   plan_draft_version: { type: Number, default: 1 },
+  plan_draft_status: { type: String, enum: ['draft', 'review_ready', 'published', 'archived'], default: 'draft' },
   plan_published_version: { type: Number, default: 0 },
   plan_published_at: { type: Date },
+  plan_updated_at: { type: Date },
+  plan_publish_history: [{ type: mongoose.Schema.Types.Mixed }],
   current_week: { type: Number, default: 1 },
   
   // 会员信息

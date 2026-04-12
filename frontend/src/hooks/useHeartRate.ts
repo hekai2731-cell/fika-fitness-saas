@@ -1,8 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { buildHRProfile, detectZone, type HRProfile, type HRZone } from '@/lib/heartRateUtils';
 
-type BTDevice = any;
-type BTCharacteristic = any;
+interface BTCharacteristic extends EventTarget {
+  value?: DataView;
+  startNotifications: () => Promise<BTCharacteristic>;
+  stopNotifications: () => Promise<void>;
+}
+
+interface BTService {
+  getCharacteristic: (characteristic: string) => Promise<BTCharacteristic>;
+}
+
+interface BTServer {
+  getPrimaryService: (service: string) => Promise<BTService>;
+}
+
+interface BTGatt {
+  connect: () => Promise<BTServer>;
+  disconnect: () => void;
+}
+
+interface BTDevice extends EventTarget {
+  gatt?: BTGatt;
+}
+
+interface BTNavigator extends Navigator {
+  bluetooth?: {
+    requestDevice: (options: { filters: Array<{ services: string[] }> }) => Promise<BTDevice>;
+  };
+}
 
 const HR_SERVICE = 'heart_rate';
 const HR_CHAR = 'heart_rate_measurement';
@@ -40,7 +66,9 @@ export function useHeartRate(age?: number, rhr?: number): UseHeartRateReturn {
   const deviceRef = useRef<BTDevice | null>(null);
   const charRef = useRef<BTCharacteristic | null>(null);
   const profileRef = useRef(profile);
-  profileRef.current = profile;
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
 
   const setClientProfile = useCallback((a: number, r: number) => {
     const p = buildHRProfile(a, r);
@@ -70,7 +98,12 @@ export function useHeartRate(age?: number, rhr?: number): UseHeartRateReturn {
     }
     setStatus('connecting');
     try {
-      const device: BTDevice = await (navigator as any).bluetooth.requestDevice({
+      const bt = (navigator as BTNavigator).bluetooth;
+      if (!bt) {
+        setStatus('unsupported');
+        return;
+      }
+      const device: BTDevice = await bt.requestDevice({
         filters: [{ services: [HR_SERVICE] }],
       });
       deviceRef.current = device;
@@ -89,9 +122,10 @@ export function useHeartRate(age?: number, rhr?: number): UseHeartRateReturn {
       await char.startNotifications();
       char.addEventListener('characteristicvaluechanged', onHRChange);
       setStatus('connected');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[useHeartRate]', err);
-      if (err?.name === 'NotFoundError') {
+      const errorName = err instanceof Error ? err.name : '';
+      if (errorName === 'NotFoundError') {
         setStatus('disconnected');
       } else {
         setStatus('error');

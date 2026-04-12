@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId } from 'mongoose';
 import { generateSessionPlan } from './sessionPlan.js';
 import { generateWeekPlan, generateFullPlan } from './planning.js';
 import { generateDietPlan } from './dietPlan.js';
@@ -10,14 +10,24 @@ import { Plan } from './models/Plan.js';
 import { Client } from './models/Client.js';
 import { Coach } from './models/Coach.js';
 import clientsRouter from './routes/clients.js';
+import plansRouter from './routes/plans.js';
+import aiRouter from './routes/ai.js';
+import sessionsRouter from './routes/sessions.js';
+import financesRouter from './routes/finances.js';
+import adminRouter from './routes/admin.js';
 
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
-// MongoDB 云同步路由 - 轻量级客户端数据同步
+// 路由挂载
 app.use('/api/sync/clients', clientsRouter);
+app.use('/api/plans', plansRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/sessions', sessionsRouter);
+app.use('/api/finances', financesRouter);
+app.use('/api/admin', adminRouter);
 
 const DEFAULT_TEMP_USER_ID = process.env.DEFAULT_TEMP_USER_ID || 'guest';
 
@@ -59,10 +69,11 @@ async function persistGeneratedPlan(planType, payload = {}, result = {}) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, service: 'fika-backend', ts: Date.now() });
+  const mongoConnected = mongoose.connection.readyState === 1;
+  res.json({ ok: true, service: 'fika-backend', mongoConnected, ts: Date.now() });
 });
 
-// 调试API - 检查数据库中的实际数据
+// 调试API（已迁移到 routes/admin.js）- 保留此注释用于记录迁移历史
 app.get('/api/admin/debug-data', async (req, res) => {
   try {
     console.log('[backend] Debugging database data...');
@@ -103,7 +114,7 @@ app.get('/api/admin/debug-data', async (req, res) => {
   }
 });
 
-// 强力数据清理API - 彻底解决重复数据问题
+// 数据清理API（已迁移到 routes/admin.js）
 app.post('/api/admin/cleanup-duplicates', async (req, res) => {
   try {
     console.log('[backend] Starting aggressive duplicate data cleanup...');
@@ -204,7 +215,22 @@ app.get('/api/clients/by-road-code/:code', async (req, res) => {
 app.post('/api/clients', async (req, res) => {
   try {
     const clientData = req.body;
-    
+
+    // 检查是否存在同 id 或同 roadCode 的已软删记录，防止复活
+    const existing = await Client.collection.findOne({
+      $or: [
+        { id: clientData.id },
+        { roadCode: clientData.roadCode },
+      ],
+    });
+    if (existing && existing.deletedAt) {
+      return res.status(409).json({
+        error: 'Client has been deleted',
+        code: 'CLIENT_DELETED',
+        details: `A client with this id or roadCode was soft-deleted and cannot be recreated`,
+      });
+    }
+
     // 移除roadCode字段避免冲突，然后单独处理
     const { roadCode, ...clientDataWithoutRoadCode } = clientData;
     
@@ -255,16 +281,22 @@ app.put('/api/clients/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const clientData = req.body;
-    
-    // 首先清理所有重复记录，只保留最新的一个
-    await Client.deleteMany({ 
-      id: id,
-      _id: { $ne: (await Client.findOne({ id: id }).sort({ updatedAt: -1 }))?._id }
-    });
-    
+
+    // 直接走 MongoDB driver 绕过 Mongoose pre find 软删过滤，查原始记录
+    const existing = await Client.collection.findOne({ id });
+
+    // 如果客户已被软删除，拒绝更新（防止 upsert 复活）
+    if (existing && existing.deletedAt) {
+      return res.status(409).json({
+        error: 'Client has been deleted',
+        code: 'CLIENT_DELETED',
+        details: `Client ${id} was soft-deleted and cannot be updated`,
+      });
+    }
+
     // 移除roadCode字段避免冲突，然后单独处理
     const { roadCode, ...clientDataWithoutRoadCode } = clientData;
-    
+
     const client = await Client.findOneAndUpdate(
       { id: id },
       { 
@@ -315,6 +347,121 @@ app.put('/api/clients/:id', async (req, res) => {
   }
 });
 
+app.post('/api/clients/:id/plan/review-ready', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = await Client.findOneAndUpdate(
+      { id },
+      {
+        plan_draft_status: 'review_ready',
+        updatedAt: new Date(),
+      },
+      { new: true }
+    ).lean();
+
+    if (!client) {
+      return res.status(404).json({ error: 'client not found' });
+    }
+
+    return res.json({ success: true, client });
+  } catch (err) {
+    console.error('[backend] mark review-ready failed:', err);
+    return res.status(500).json({ error: 'mark review-ready failed', details: String(err) });
+  }
+});
+
+app.post('/api/clients/:id/plan/publish', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { publishedByCoachCode, publishedByCoachName } = req.body || {};
+
+    const client = await Client.findOne({ id });
+    if (!client) {
+      return res.status(404).json({ error: 'client not found' });
+    }
+
+    const blocks = Array.isArray(client.blocks) ? client.blocks : [];
+    if (blocks.length === 0) {
+      return res.status(400).json({ error: 'no draft blocks to publish' });
+    }
+
+    const publishedAt = new Date();
+    const draftVersion = Number(client.plan_draft_version || 1);
+    const nextHistory = Array.isArray(client.plan_publish_history) ? [...client.plan_publish_history] : [];
+    // history 只存摘要，不存完整 blocks，防止文档无限增大
+    nextHistory.push({
+      version: draftVersion,
+      published_at: publishedAt,
+      published_by: {
+        coachCode: publishedByCoachCode || null,
+        coachName: publishedByCoachName || null,
+      },
+      summary: {
+        block_count: blocks.length,
+        week_count: blocks.reduce((s, b) => s + (Array.isArray(b.training_weeks) ? b.training_weeks.length : 0), 0),
+        day_count: blocks.reduce((s, b) => s + (Array.isArray(b.training_weeks) ? b.training_weeks.reduce((ws, w) => ws + (Array.isArray(w.days) ? w.days.length : 0), 0) : 0), 0),
+      },
+    });
+
+    client.published_blocks = JSON.parse(JSON.stringify(blocks));
+    client.plan_draft_status = 'published';
+    client.plan_published_version = draftVersion;
+    client.plan_published_at = publishedAt;
+    client.plan_publish_history = nextHistory;
+    client.updatedAt = publishedAt;
+    await client.save();
+
+    return res.json({ success: true, client: client.toObject() });
+  } catch (err) {
+    console.error('[backend] publish plan failed:', err);
+    return res.status(500).json({ error: 'publish plan failed', details: String(err) });
+  }
+});
+
+app.post('/api/clients/:id/plan/rollback', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { version } = req.body || {};
+
+    const client = await Client.findOne({ id });
+    if (!client) {
+      return res.status(404).json({ error: 'client not found' });
+    }
+
+    // history 现在只存摘要，回滚只能回到上一个已发布版本（published_blocks）
+    const history = Array.isArray(client.plan_publish_history) ? client.plan_publish_history : [];
+    if (history.length === 0 || !Array.isArray(client.published_blocks) || client.published_blocks.length === 0) {
+      return res.status(400).json({ error: 'no published version to rollback to' });
+    }
+
+    // 找到目标版本的摘要记录（用于更新版本号和时间戳）
+    const currentVersion = Number(client.plan_published_version || 0);
+    let targetMeta = null;
+    if (version != null) {
+      targetMeta = history.find((item) => Number(item?.version) === Number(version)) || null;
+    } else {
+      const candidates = history.filter((item) => Number(item?.version) !== currentVersion);
+      targetMeta = candidates[candidates.length - 1] || null;
+    }
+
+    if (!targetMeta) {
+      return res.status(400).json({ error: 'rollback target version not found in history' });
+    }
+
+    // published_blocks 保持不变（已是最后发布的内容），只更新版本号标记
+    client.plan_draft_status = 'published';
+    client.plan_published_version = Number(targetMeta.version || 0);
+    client.plan_published_at = targetMeta.published_at ? new Date(targetMeta.published_at) : new Date();
+    client.updatedAt = new Date();
+    await client.save();
+
+    return res.json({ success: true, client: client.toObject() });
+  } catch (err) {
+    console.error('[backend] rollback plan failed:', err);
+    return res.status(500).json({ error: 'rollback plan failed', details: String(err) });
+  }
+});
+
 app.delete('/api/clients/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -360,14 +507,22 @@ app.put('/api/coaches', async (req, res) => {
       return res.status(400).json({ error: 'Expected an array of coaches' });
     }
 
-    // 清除所有现有教练，然后插入新的
-    await Coach.deleteMany({});
-
-    if (coaches.length > 0) {
-      await Coach.insertMany(coaches);
+    if (coaches.length === 0) {
+      return res.json({ success: true, count: 0 });
     }
 
-    console.log('[backend] Coaches updated:', coaches.length);
+    // 用 bulkWrite upsert 逐条更新，不做全量删除，避免中途崩溃导致数据清空
+    const ops = coaches.map((coach) => ({
+      updateOne: {
+        filter: { code: coach.code },
+        update: { $set: { ...coach, updatedAt: new Date() } },
+        upsert: true,
+      },
+    }));
+
+    const result = await Coach.bulkWrite(ops, { ordered: false });
+
+    console.log('[backend] Coaches upserted:', result.upsertedCount, 'inserted,', result.modifiedCount, 'modified');
     res.json({ success: true, count: coaches.length });
   } catch (err) {
     console.error('[backend] Failed to update coaches:', err);
@@ -384,19 +539,14 @@ app.put('/api/coaches', async (req, res) => {
   }
 });
 
+// AI 和 Plans API 已迁移到 routes/ai.js 和 routes/plans.js
+// 旧端点向后兼容：/api/session-plan /api/week-plan /api/full-plan /api/diet-plan
+// 前端逐步迁移到 /api/ai/generate 后可删除以下兼容层
+
 app.post('/api/session-plan', async (req, res) => {
   try {
-    const payload = req.body || {};
-    const plan = await generateSessionPlan(payload);
-    
-    // Try to save to database, but don't fail if it's not available
-    try {
-      const saved = await persistGeneratedPlan('session', payload, plan);
-      res.json({ ...plan, planId: saved._id });
-    } catch (dbErr) {
-      console.log('[backend] Database save failed, returning result without persistence:', dbErr.message);
-      res.json({ ...plan, planId: null, saved: false });
-    }
+    const plan = await generateSessionPlan(req.body || {});
+    res.json({ ...plan, planId: null });
   } catch (err) {
     res.status(500).json({ error: 'session plan failed', details: String(err) });
   }
@@ -404,18 +554,9 @@ app.post('/api/session-plan', async (req, res) => {
 
 app.post('/api/week-plan', async (req, res) => {
   try {
-    const payload = req.body || {};
-    const plan = await generateWeekPlan(payload);
+    const plan = await generateWeekPlan(req.body || {});
     if (plan?.error) return res.status(500).json(plan);
-    
-    // Try to save to database, but don't fail if it's not available
-    try {
-      const saved = await persistGeneratedPlan('week', payload, plan);
-      res.json({ ...plan, planId: saved._id });
-    } catch (dbErr) {
-      console.log('[backend] Database save failed for week plan, returning result without persistence:', dbErr.message);
-      res.json({ ...plan, planId: null, saved: false });
-    }
+    res.json({ ...plan, planId: null });
   } catch (err) {
     res.status(500).json({ error: 'week plan failed', details: String(err) });
   }
@@ -423,18 +564,9 @@ app.post('/api/week-plan', async (req, res) => {
 
 app.post('/api/full-plan', async (req, res) => {
   try {
-    const payload = req.body || {};
-    const plan = await generateFullPlan(payload);
+    const plan = await generateFullPlan(req.body || {});
     if (plan?.error) return res.status(500).json(plan);
-    
-    // Try to save to database, but don't fail if it's not available
-    try {
-      const saved = await persistGeneratedPlan('full', payload, plan);
-      res.json({ ...plan, planId: saved._id });
-    } catch (dbErr) {
-      console.log('[backend] Database save failed for full plan, returning result without persistence:', dbErr.message);
-      res.json({ ...plan, planId: null, saved: false });
-    }
+    res.json({ ...plan, planId: null });
   } catch (err) {
     res.status(500).json({ error: 'full plan failed', details: String(err) });
   }
@@ -442,49 +574,11 @@ app.post('/api/full-plan', async (req, res) => {
 
 app.post('/api/diet-plan', async (req, res) => {
   try {
-    const payload = req.body || {};
-    const plan = await generateDietPlan(payload);
+    const plan = await generateDietPlan(req.body || {});
     if (plan?.error) return res.status(500).json(plan);
-    const saved = await persistGeneratedPlan('diet', payload, plan);
-    res.json({ ...plan, planId: saved._id });
+    res.json({ ...plan, planId: null });
   } catch (err) {
     res.status(500).json({ error: 'diet plan failed', details: String(err) });
-  }
-});
-
-app.get('/api/plans', async (req, res) => {
-  try {
-    const { clientId, planType, userId, tempUserId, limit } = req.query;
-    const query = {};
-
-    if (clientId) query.clientId = String(clientId);
-    if (planType) query.planType = String(planType);
-    if (userId && isValidObjectId(String(userId))) query.userId = String(userId);
-    if (tempUserId) query.tempUserId = String(tempUserId);
-
-    const listLimit = Math.min(100, Math.max(1, Number(limit) || 50));
-    const plans = await Plan.find(query).sort({ createdAt: -1 }).limit(listLimit).lean();
-    res.json(plans);
-  } catch (err) {
-    res.status(500).json({ error: 'list plans failed', details: String(err) });
-  }
-});
-
-app.get('/api/plans/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!isValidObjectId(id)) {
-      return res.status(400).json({ error: 'invalid plan id' });
-    }
-
-    const plan = await Plan.findById(id).lean();
-    if (!plan) {
-      return res.status(404).json({ error: 'plan not found' });
-    }
-
-    return res.json(plan);
-  } catch (err) {
-    return res.status(500).json({ error: 'get plan failed', details: String(err) });
   }
 });
 
@@ -633,24 +727,32 @@ app.post('/api/survey/approve/:id', async (req, res) => {
 });
 
 const port = Number(process.env.PORT || 4000);
+const host = process.env.HOST || '127.0.0.1';
 
-async function bootstrap() {
+async function connectMongoWithRetry() {
   try {
     await connectMongo();
     console.log('[backend] MongoDB connected successfully');
+    return;
   } catch (err) {
-    console.error('[backend] CRITICAL: MongoDB connection failed:', err.message);
-    console.error('[backend] Application cannot start without MongoDB. Please check:');
+    console.error('[backend] MongoDB connection failed on startup:', err.message);
+    console.error('[backend] Server will continue to run and retry in 5 seconds. Please check:');
     console.error('1. MongoDB is running: sudo systemctl status mongod');
     console.error('2. Connection string is correct in .env file');
     console.error('3. Network connectivity to MongoDB server');
-    process.exit(1);
+    setTimeout(() => {
+      void connectMongoWithRetry();
+    }, 5000);
   }
-  
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`[backend] FiKA SaaS Backend is running on http://0.0.0.0:${port}`);
+}
+
+async function bootstrap() {
+  app.listen(port, host, () => {
+    console.log(`[backend] FiKA SaaS Backend is running on http://${host}:${port}`);
     console.log('[backend] All data operations will use MongoDB exclusively');
   });
+
+  await connectMongoWithRetry();
 }
 
 void bootstrap();

@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 
 const DEFAULT_MONGO_URI = 'mongodb://127.0.0.1:27017/fika';
+let listenersBound = false;
+let sigintBound = false;
 
 export async function connectMongo() {
   // 检查现有连接状态
@@ -24,30 +26,36 @@ export async function connectMongo() {
     writeConcern: { w: 'majority' }, // 写入确认（新格式）
   });
 
-  // 连接事件监听
-  mongoose.connection.on('connected', () => {
-    console.log(`[backend] MongoDB connected: ${mongoose.connection.name}`);
-  });
+  // 连接事件监听（只绑定一次，避免重复重连时堆叠）
+  if (!listenersBound) {
+    mongoose.connection.on('connected', () => {
+      console.log(`[backend] MongoDB connected: ${mongoose.connection.name}`);
+    });
 
-  mongoose.connection.on('error', (err) => {
-    console.error('[backend] MongoDB connection error:', err);
-  });
+    mongoose.connection.on('error', (err) => {
+      console.error('[backend] MongoDB connection error:', err);
+    });
 
-  mongoose.connection.on('disconnected', () => {
-    console.warn('[backend] MongoDB disconnected, attempting to reconnect in 5s...');
-    setTimeout(() => {
-      connectMongo().catch(err => {
-        console.error('[backend] Reconnection attempt failed:', err);
-      });
-    }, 5000);
-  });
+    mongoose.connection.on('disconnected', () => {
+      console.warn('[backend] MongoDB disconnected, attempting to reconnect in 5s...');
+      setTimeout(() => {
+        connectMongo().catch(err => {
+          console.error('[backend] Reconnection attempt failed:', err);
+        });
+      }, 5000);
+    });
+    listenersBound = true;
+  }
 
-  // 优雅关闭
-  process.on('SIGINT', async () => {
-    await mongoose.connection.close();
-    console.log('[backend] MongoDB connection closed through app termination');
-    process.exit(0);
-  });
+  // 优雅关闭（只绑定一次）
+  if (!sigintBound) {
+    process.on('SIGINT', async () => {
+      await mongoose.connection.close();
+      console.log('[backend] MongoDB connection closed through app termination');
+      process.exit(0);
+    });
+    sigintBound = true;
+  }
 
   return mongoose.connection;
 }

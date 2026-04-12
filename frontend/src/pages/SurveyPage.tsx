@@ -175,10 +175,13 @@ export function SurveyPage() {
       // 第0步：检查姓名和手机
       return name.trim() !== '' && phone.trim() !== '' && /^\d{11}$/.test(phone);
     }
-    return questions.every((q) => (profile as any)[q.key] !== undefined && (profile as any)[q.key] !== '');
+    return questions.every((q) => {
+      const value = profile[q.key as keyof Profile];
+      return value !== undefined && value !== '';
+    });
   }, [step, name, phone, questions, profile]);
 
-  const onPick = (key: keyof Profile, value: any) => {
+  const onPick = (key: keyof Profile, value: Profile[keyof Profile]) => {
     setProfile((prev) => ({ ...prev, [key]: value }));
     setError(null);
   };
@@ -300,12 +303,12 @@ export function SurveyPage() {
               <div style={styles.questionTitle}>{q.title}</div>
               <div style={styles.optionsGrid}>
                 {q.options.map((opt) => {
-                  const active = (profile as any)[q.key] === opt.value;
+                  const active = profile[q.key as keyof Profile] === opt.value;
                   return (
                     <button
                       key={String(opt.value)}
                       type="button"
-                      onClick={() => onPick(q.key, opt.value)}
+                      onClick={() => onPick(q.key as keyof Profile, opt.value as Profile[keyof Profile])}
                       style={{ ...styles.optionBtn, ...(active ? styles.optionBtnActive : {}) }}
                     >
                       {opt.label}

@@ -3,7 +3,7 @@ export type TrainingDay = {
   day: string;
   name: string;
   focus?: string;
-  modules?: any[];
+  modules?: unknown[];
   exercises?: string;
 };
 
@@ -42,6 +42,8 @@ export type Client = {
   id: string;
   roadCode?: string;
   name: string;
+  coachCode?: string;
+  coachName?: string;
   tier?: 'standard' | 'pro' | 'ultra';
   gender?: 'male' | 'female';
   age?: number;
@@ -49,16 +51,37 @@ export type Client = {
   weight?: number;
   goal?: string;
   injury?: string;
-  weeklyData?: Array<Record<string, any>>;
+  weeks?: number;
+  weeks_total?: number;
+  deletedAt?: string;
+  deletedByCoachCode?: string;
+  deletedByCoachName?: string;
+  membershipLevel?: 'standard' | 'advanced' | 'professional' | 'elite';
+  weeklyData?: Array<Record<string, unknown>>;
   start_date?: string;
   current_week?: number;
   blocks?: Block[];
   published_blocks?: Block[];
   plan_draft_version?: number;
+  plan_draft_status?: 'draft' | 'review_ready' | 'published' | 'archived';
   plan_published_version?: number;
   plan_updated_at?: string;
   plan_published_at?: string;
+  plan_publish_history?: Array<{
+    version?: number;
+    published_at?: string;
+    published_by?: {
+      coachCode?: string;
+      coachName?: string;
+    };
+    blocks?: Block[];
+  }>;
   sessions?: ClientSession[];
+  dietPlans?: unknown[];
+  dailyLogs?: Array<{
+    date?: string;
+    totalProtein?: number;
+  }>;
   profile?: {
     age_range?: '18-25' | '26-35' | '36-45' | '45+';
     gender?: 'male' | 'female' | 'other';
@@ -116,3 +139,91 @@ export function getLevelInfo(level: number): { price: number } {
   if (level === 3) return { price: 599 };
   return { price: 399 };
 }
+
+// ── 新架构类型定义 ───────────────────────────────────────────────
+
+export type TrainingPlan = {
+  _id?: string;
+  clientId: string;
+  coachCode?: string;
+  status: 'draft' | 'review_ready' | 'published' | 'archived';
+  draft_version?: number;
+  published_version?: number;
+  published_at?: string;
+  updated_at?: string;
+  blocks: Block[];
+  published_blocks?: Block[];
+  publish_history?: Array<{
+    version: number;
+    published_at: string;
+    published_by?: { coachCode?: string; coachName?: string };
+    summary?: { block_count: number; week_count: number; day_count: number };
+  }>;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type AiDraft = {
+  _id?: string;
+  clientId: string;
+  coachCode?: string;
+  planType: 'session' | 'week' | 'full' | 'diet';
+  status: 'pending' | 'approved' | 'rejected';
+  input_payload?: Record<string, unknown>;
+  output_result?: Record<string, unknown>;
+  approved_at?: string;
+  rejected_at?: string;
+  reject_reason?: string;
+  target_plan_id?: string;
+  target_week_id?: string;
+  target_day_id?: string;
+  createdAt?: string;
+};
+
+export type SessionRecord = {
+  _id?: string;
+  clientId: string;
+  coachCode?: string;
+  date: string;
+  week?: number;
+  day?: string;
+  duration?: number;
+  price?: number;
+  level?: number;
+  rpe?: number;
+  performance?: string;
+  note?: string;
+  hrAvg?: number;
+  hrMax?: number;
+  hrMin?: number;
+  hrZoneDurations?: Record<number, number>;
+  kcal?: number;
+  plan_id?: string;
+  plan_day_id?: string;
+  block_index?: number;
+  block_week?: number;
+  exercises?: unknown[];
+  createdAt?: string;
+};
+
+export type FinanceRecord = {
+  _id?: string;
+  clientId: string;
+  coachCode?: string;
+  type: 'purchase' | 'consumption' | 'refund' | 'adjustment';
+  sessions_count?: number;
+  sessions_remaining?: number;
+  amount?: number;
+  package_type?: 'standard' | 'advanced' | 'professional' | 'elite';
+  date?: string;
+  note?: string;
+  session_id?: string;
+  createdAt?: string;
+};
+
+export type FinanceSummary = {
+  sessions_purchased: number;
+  sessions_consumed: number;
+  sessions_refunded: number;
+  sessions_remaining: number;
+};

@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { MongoClient, Db } from 'mongodb';
+import { MongoClient } from 'mongodb';
 
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/fika';
 const DB_NAME = 'fika';
+const CLIENTS_COLLECTION = 'fika_clients';
 
 let db = null;
 let connecting = false;
@@ -14,20 +15,23 @@ async function getDb() {
     return getDb();
   }
   connecting = true;
-  const client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 5000 });
-  await client.connect();
-  db = client.db(DB_NAME);
-  console.log('[MongoDB] 连接成功:', MONGO_URI);
-  await db.collection('clients').createIndex({ id: 1 }, { unique: true });
-  await db.collection('clients').createIndex({ roadCode: 1 });
-  await db.collection('clients').createIndex({ coachCode: 1 });
-  connecting = false;
-  return db;
+  try {
+    const client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 5000 });
+    await client.connect();
+    db = client.db(DB_NAME);
+    console.log('[MongoDB] 连接成功:', MONGO_URI);
+    await db.collection(CLIENTS_COLLECTION).createIndex({ id: 1 }, { unique: true });
+    await db.collection(CLIENTS_COLLECTION).createIndex({ roadCode: 1 });
+    await db.collection(CLIENTS_COLLECTION).createIndex({ coachCode: 1 });
+    return db;
+  } finally {
+    connecting = false;
+  }
 }
 
 async function col() {
   const database = await getDb();
-  return database.collection('clients');
+  return database.collection(CLIENTS_COLLECTION);
 }
 
 const router = Router();

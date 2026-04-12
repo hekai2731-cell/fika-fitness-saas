@@ -184,10 +184,8 @@ export function ClientsPage({
 
   const resolveMembershipLevel = (c: Client | null): MembershipLevel => {
     if (!c) return 'standard';
-    const stored = (c as any).membershipLevel as MembershipLevel | undefined;
+    const stored = c.membershipLevel as MembershipLevel | undefined;
     if (stored && tierOrder.includes(stored)) return stored;
-    if (c.tier === 'ultra') return 'elite';
-    if (c.tier === 'pro') return 'professional';
     return 'standard';
   };
 
@@ -289,7 +287,7 @@ export function ClientsPage({
 
     try {
       setTierSwitchingId(activeClient.id);
-      const updatedClient = { ...activeClient, tier: tierMeta[nextTier].storeTier, membershipLevel: nextTier } as Client;
+      const updatedClient = { ...activeClient, membershipLevel: nextTier } as Client;
 
       // 同步更新本地状态
       const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));

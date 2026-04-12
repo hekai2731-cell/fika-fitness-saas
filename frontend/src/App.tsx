@@ -50,68 +50,12 @@ function lsSet(key: string, val: unknown) {
   localStorage.setItem('fika_' + key, JSON.stringify(val));
 }
 
-// 初始化演示数据（首次运行时）
+// 初始化演示数据（首次运行时，仅写入演示教练，不写假客户）
 function initDemoData() {
   if (lsGet('data_initialized', false)) return;
   lsSet('coaches', [
     { code: 'COACH001', name: '龙教练', specialties: ['功能性力量', '减脂塑形'], clients: [] },
     { code: 'COACH002', name: '林教练', specialties: ['运动康复', '体能提升'], clients: [] },
-  ]);
-  lsSet('clients', [
-    {
-      id: 'CL001',
-      roadCode: 'FIKA-WF001',
-      name: '上官',
-      gender: 'male',
-      age: 28,
-      height: 178,
-      weight: 72.4,
-      tier: 'pro',
-      goal: '功能性力量提升',
-      weeks: 15,
-      injury: '右膝注意',
-      coachCode: 'COACH001',
-      blocks: [],
-      sessions: [],
-      weeklyData: [],
-      dietPlans: [],
-    },
-    {
-      id: 'CL002',
-      roadCode: 'FIKA-WF002',
-      name: '林思凡',
-      gender: 'female',
-      age: 25,
-      height: 163,
-      weight: 55,
-      tier: 'standard',
-      goal: '减脂塑形',
-      weeks: 12,
-      injury: '',
-      coachCode: 'COACH001',
-      blocks: [],
-      sessions: [],
-      weeklyData: [],
-      dietPlans: [],
-    },
-    {
-      id: 'CL003',
-      roadCode: 'FIKA-WF003',
-      name: '陈明',
-      gender: 'male',
-      age: 32,
-      height: 175,
-      weight: 80,
-      tier: 'ultra',
-      goal: '运动表现提升',
-      weeks: 20,
-      injury: '',
-      coachCode: 'COACH002',
-      blocks: [],
-      sessions: [],
-      weeklyData: [],
-      dietPlans: [],
-    },
   ]);
   lsSet('data_initialized', true);
 }
@@ -451,10 +395,8 @@ function CoachClientSelectPage({
   };
 
   const resolveMembershipLevel = (c: Client): MembershipLevel => {
-    const stored = (c as any).membershipLevel as MembershipLevel | undefined;
+    const stored = c.membershipLevel as MembershipLevel | undefined;
     if (stored === 'standard' || stored === 'advanced' || stored === 'professional' || stored === 'elite') return stored;
-    if (c.tier === 'ultra') return 'elite';
-    if (c.tier === 'pro') return 'professional';
     return 'standard';
   };
 
@@ -1223,37 +1165,16 @@ function App() {
         setIsInitializing(false);
       }
 
-      // 自动登录恢复
+      // 自动登录恢复（数据已在上方加载完毕，直接从内存缓存读取）
       try {
         const saved = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
         if (saved) {
           const sess = JSON.parse(saved) as SessionData;
           if (sess.role === 'student' && (sess.clientId || sess.roadCode)) {
-            const clients = lsGet<any[]>('clients', []);
-            let client = clients.find((c) => c.id === (sess as any).clientId);
+            const cached = getClientsFromCache();
+            let client: Client | undefined = cached.find((c) => c.id === (sess as any).clientId);
             if (!client && (sess as any).roadCode) {
-              client = clients.find((c) => String(c.roadCode || '').toUpperCase() === String((sess as any).roadCode).toUpperCase());
-            }
-            if (!client && (sess as any).roadCode) {
-              const code = String((sess as any).roadCode).toUpperCase();
-              client = {
-                id: 'DEMO_' + code,
-                roadCode: code,
-                name: code,
-                gender: 'male',
-                age: 25,
-                height: 170,
-                weight: 65,
-                tier: 'pro',
-                goal: '功能性力量',
-                weeks: 15,
-                injury: '',
-                coachCode: 'COACH001',
-                blocks: [],
-                sessions: [],
-                weeklyData: [],
-                dietPlans: [],
-              };
+              client = cached.find((c) => String((c as any).roadCode || '').toUpperCase() === String((sess as any).roadCode).toUpperCase());
             }
             if (client) {
               setCurrentStudent(client);
@@ -1268,15 +1189,6 @@ function App() {
         }
       } catch {
         // ignore
-      }
-
-      // Load initial data from server
-      try {
-        await loadClients();
-        await loadCoaches();
-        console.log('[app] Initial data loaded from server');
-      } catch (error) {
-        console.warn('[app] Failed to load initial data from server:', error);
       }
     })();
 

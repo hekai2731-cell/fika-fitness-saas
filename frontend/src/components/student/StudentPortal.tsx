@@ -325,7 +325,7 @@ function TodayTab({
   const todayIndex = timelineDays.findIndex((d) => d.day === todayLabel);
   const weekFocusSummary = timelineDays.find((d) => d.focus)?.focus || '本周重点聚焦动作质量与强度推进，保持恢复节奏。';
   const resolvedMembershipLevel: 'standard' | 'advanced' | 'professional' | 'elite' =
-    client.membershipLevel || (client.tier === 'ultra' ? 'elite' : client.tier === 'pro' ? 'professional' : 'standard');
+    client.membershipLevel || 'standard';
 
   const tierTheme =
     resolvedMembershipLevel === 'elite'
