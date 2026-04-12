@@ -190,12 +190,17 @@ export function ClientsPage({
   };
 
   useEffect(() => {
-    const list = getClientsFromCache().filter((c) => c.name !== '示例客户');
-    setClients(list);
-    if (list.length > 0) {
-      if (selectedClientId && list.some((c) => c.id === selectedClientId)) setActiveId(selectedClientId);
-      else setActiveId(list[0].id);
-    }
+    const reload = () => {
+      const list = getClientsFromCache().filter((c) => c.name !== '示例客户');
+      setClients(list);
+      if (list.length > 0) {
+        if (selectedClientId && list.some((c) => c.id === selectedClientId)) setActiveId(selectedClientId);
+        else setActiveId(list[0].id);
+      }
+    };
+    reload();
+    window.addEventListener('storage', reload);
+    return () => window.removeEventListener('storage', reload);
   }, [selectedClientId]);
 
   useEffect(() => {

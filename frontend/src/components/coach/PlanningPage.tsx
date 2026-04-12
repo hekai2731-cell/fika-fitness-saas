@@ -732,6 +732,17 @@ export function PlanningPage({
     };
   }, []);
 
+  // storage 事件：更新 client 的 sessions 等字段，不重置 block/week/day 选中状态
+  useEffect(() => {
+    const onStorage = () => {
+      if (!selectedClientId) return;
+      const fresh = getClientsFromCache().find(c => c.id === selectedClientId);
+      if (fresh) setClient(prev => prev ? { ...prev, sessions: fresh.sessions, weeklyData: fresh.weeklyData } : fresh);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [selectedClientId]);
+
   
   // ── 派生选中项 ──────────────────────────────────────────────
   const selectedBlock = useMemo<Block | null>(() => {
@@ -1701,14 +1712,17 @@ export function PlanningPage({
             blockIndex: Math.max(0, (client.blocks || []).findIndex(b => b.id === selectedBlock.id)),
           }),
         });
-        dayPlans[d.day] = json;
-        dayPlans[`day${di + 1}`] = json;
+        const enriched = { ...json, day_key: d.day, dayKey: d.day, day: d.day };
+        dayPlans[d.day] = enriched;
+        dayPlans[`day${di + 1}`] = enriched;
       }
 
-      // 显示预览弹窗
+      // 显示预览弹窗（用唯一 day 名去重，避免 Object.values 产生重复条目）
+      const uniqueDays = (selectedWeek.days || []).map(d => dayPlans[d.day]).filter(Boolean);
       const previewPayload = {
         week_theme: outlineByDayKey,
-        days: Object.values(dayPlans),
+        week_brief: Object.values(outlineByDayKey).map((v: any) => v?.day_focus || '').filter(Boolean).join(' · '),
+        days: uniqueDays,
       };
       setGeneratedPreview({
         type: 'week',

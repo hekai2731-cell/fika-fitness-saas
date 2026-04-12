@@ -58,6 +58,8 @@ export function CoachPortal({
             if (idx >= 0) all[idx] = updated;
             else all.push(updated);
             updateClientsCache(all);
+            // 通知子组件（ClientsPage / PlanningPage）从 cache 重新加载
+            window.dispatchEvent(new Event('storage'));
             void createSession({
               ...session,
               date: String((session as any).date || new Date().toISOString().slice(0, 10)),
