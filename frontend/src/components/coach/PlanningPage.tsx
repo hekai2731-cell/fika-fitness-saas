@@ -86,14 +86,6 @@ interface PlanConfirmForm {
   weekIntensityPhase: 'build' | 'peak' | 'deload';
 }
 
-const PLAN_PRIORITY_OPTIONS = ['减脂塑形', '增肌力量', '体态矫正', '运动表现', '康复训练', '心肺耐力'] as const;
-
-const PLAN_FREQUENCY_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
-  { value: '2', label: '2次/周', desc: '基础维持' },
-  { value: '3', label: '3次/周', desc: '稳步提升' },
-  { value: '4', label: '4次/周', desc: '进阶训练' },
-  { value: '5', label: '5+次/周', desc: '高频冲刺' },
-];
 
 const RECOVERY_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
   { value: '1-2天:还酸痛', label: '1-2天:还酸痛', desc: '肌肉酸痛明显' },
@@ -1095,6 +1087,22 @@ export function PlanningPage({
   const [blockRecLoading, setBlockRecLoading] = useState(false);
   const [blockRecForm, setBlockRecForm] = useState({ title: '', goal: '', weeks: 8 });
 
+  // ── Block 两步表单 state ──────────────────────────────────────────
+  const [blockStep,             setBlockStep]             = useState<'form' | 'preview'>('form');
+  const [blockGoals,            setBlockGoals]            = useState<string[]>([]);
+  const [blockDir,              setBlockDir]              = useState('balanced');
+  const [blockFreq,             setBlockFreq]             = useState(3);
+  const [blockWeeks,            setBlockWeeks]            = useState(8);
+  const [blockNote,             setBlockNote]             = useState('');
+  const [blockFramework,        setBlockFramework]        = useState<any>(null);
+  const [blockFrameworkLoading, setBlockFrameworkLoading] = useState(false);
+
+  // ── Week 变动调整 state ───────────────────────────────────────────
+  const [weekHasChange,   setWeekHasChange]   = useState(false);
+  const [weekEditDays,    setWeekEditDays]    = useState<any[]>([]);
+  const [weekChangeNote,  setWeekChangeNote]  = useState('');
+  const [weekPhaseOverride, setWeekPhaseOverride] = useState<string | null>(null);
+
   // ── statusScore 辅助计算 ──────────────────────────────────────────
   const computeStatusScore = (recoveryStatus: string, todayStatus: string): number => {
     if (String(todayStatus).includes('状态好')) return 5;
@@ -1164,43 +1172,93 @@ export function PlanningPage({
     }
   };
 
-  // ── Week 规则应用：直接从表单生成训练日，不调 AI ─────────────────
-  const applyWeekFromForm = () => {
-    if (!client || !selectedBlock || !selectedWeek) return;
+  // ── Block 第一步：调 /api/plan/generate-framework 生成预览框架 ──────
+  const generateBlockFramework = async () => {
+    if (!client) return;
+    setBlockFrameworkLoading(true);
     try {
-      const days: TrainingDay[] = planConfirmForm.weekSelectedDays.map((dayName) => ({
-        id: genId('day'),
-        day: dayName,
-        name: planConfirmForm.weekDayFocus[dayName] || dayName,
-        focus: planConfirmForm.weekDayFocus[dayName] || '',
-        modules: [],
-      }));
-      const next: Client = {
-        ...client,
-        blocks: (client.blocks || []).map(b =>
-          b.id !== selectedBlock.id ? b : {
-            ...b,
-            training_weeks: (b.training_weeks || []).map(w =>
-              w.id !== selectedWeek.id ? w : {
-                ...w,
-                intensity_phase: planConfirmForm.weekIntensityPhase,
-                days,
-              }
-            ),
-          }
-        ),
-      };
-      persistClient(next);
-      if (days[0]) setSelectedDayId(days[0].id);
+      const fw = await fetchJsonOrThrow(apiUrl('/api/plan/generate-framework'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          goals: blockGoals.length ? blockGoals : ['performance'],
+          direction: blockDir,
+          weeklyFreq: blockFreq,
+          membershipLevel: String((client as any).membershipLevel || 'standard'),
+          totalWeeks: blockWeeks,
+        }),
+      });
+      setBlockFramework(fw);
+      setBlockStep('preview');
     } catch (e: any) {
-      setError('周规划应用失败：' + (e?.message || String(e)));
+      setError('框架生成失败：' + (e?.message || String(e)));
+    } finally {
+      setBlockFrameworkLoading(false);
     }
+  };
+
+  // ── Block 第二步：创建 Block 并持久化 ──────────────────────────────
+  const confirmCreateBlock = () => {
+    if (!client || !blockFramework) return;
+    const newBlock: Block = {
+      id: `block-${Date.now()}`,
+      title: blockFramework.block_name,
+      goal: blockFramework.block_goal,
+      training_weeks: (blockFramework.weeks || []).map((w: any) => ({
+        id: `week-${Date.now()}-${w.week_num}`,
+        week_num: Number(w.week_num),
+        week_title: String(w.week_title || ''),
+        week_theme: String(w.week_theme || ''),
+        week_brief: String(w.week_brief || ''),
+        intensity_phase: String(w.intensity_phase || 'build'),
+        days: (w.days || []).map((d: any) => ({
+          id: `day-${Date.now()}-${d.day}`,
+          day: String(d.day || ''),
+          name: String(d.name || ''),
+          focus: String(d.focus || ''),
+          modules: [],
+        })),
+      })),
+    };
+    const next: Client = { ...client, blocks: [...(client.blocks || []), newBlock] };
+    persistClient(next);
+    setAiConfirmMode(null);
+    setBlockStep('form');
+    setBlockFramework(null);
+    setSelectedBlockId(newBlock.id);
+    setSelectedWeekId(newBlock.training_weeks[0]?.id || null);
+    setSelectedDayId(null);
+  };
+
+  // ── Week 确认应用（支持变动调整）────────────────────────────────────
+  const applyWeekEdit = () => {
+    if (!client || !selectedBlock || !selectedWeek) return;
+    const activeDays = weekEditDays
+      .filter((d: any) => d.checked)
+      .map(({ checked, editingFocus, ...d }: any) => d);
+    const updatedWeek = {
+      ...selectedWeek,
+      days: weekHasChange ? activeDays : selectedWeek.days,
+      intensity_phase: weekPhaseOverride || (selectedWeek as any).intensity_phase,
+      change_note: weekChangeNote || undefined,
+    };
+    const next: Client = {
+      ...client,
+      blocks: (client.blocks || []).map((b: any) =>
+        b.id !== selectedBlockId ? b : {
+          ...b,
+          training_weeks: (b.training_weeks || []).map((w: any) =>
+            w.id !== selectedWeek.id ? w : updatedWeek
+          ),
+        }
+      ),
+    };
+    persistClient(next);
   };
 
   const openAiConfirm = (mode: AiConfirmMode) => {
     const currentTier = String(tierOverride || client?.tier || 'standard') as 'standard' | 'pro' | 'ultra';
     const nextTier = currentTier === 'ultra' && aiSettings.training_ultra === false ? 'pro' : currentTier;
-    // 周规划：预填选中周已有的 intensity_phase
     const intensityPhase = (selectedWeek as any)?.intensity_phase || 'build';
     setPlanConfirmForm({
       ...defaultPlanConfirmForm,
@@ -1208,6 +1266,21 @@ export function PlanningPage({
       weekIntensityPhase: intensityPhase as 'build' | 'peak' | 'deload',
       weekSelectedDays: (selectedWeek?.days || []).map((d: any) => String(d.day || '')).filter(Boolean),
     });
+    if (mode === 'week') {
+      setWeekHasChange(false);
+      setWeekChangeNote('');
+      setWeekPhaseOverride(null);
+      setWeekEditDays((selectedWeek?.days || []).map((d: any) => ({ ...d, checked: true, editingFocus: false })));
+    }
+    if (mode === 'full') {
+      setBlockStep('form');
+      setBlockGoals([]);
+      setBlockDir('balanced');
+      setBlockFreq(3);
+      setBlockWeeks(8);
+      setBlockNote('');
+      setBlockFramework(null);
+    }
     setAiConfirmMode(mode);
   };
 
@@ -1227,14 +1300,6 @@ export function PlanningPage({
   };
 
 
-  const togglePriorityGoal = (goal: string) => {
-    setPlanConfirmForm((prev) => ({
-      ...prev,
-      priorityGoals: prev.priorityGoals.includes(goal)
-        ? prev.priorityGoals.filter((g) => g !== goal)
-        : [...prev.priorityGoals, goal],
-    }));
-  };
 
   const toggleDiscomfortArea = (area: string) => {
     setPlanConfirmForm((prev) => {
@@ -1275,13 +1340,16 @@ export function PlanningPage({
 
   const handleConfirmGenerate = () => {
     if (aiConfirmMode === 'full') {
-      setAiConfirmMode(null);
-      void fetchBlockRecommendation();
+      if (blockStep === 'form') {
+        void generateBlockFramework();
+      } else {
+        confirmCreateBlock();
+      }
       return;
     }
     if (aiConfirmMode === 'week') {
       setAiConfirmMode(null);
-      applyWeekFromForm();
+      applyWeekEdit();
       return;
     }
     if (aiConfirmMode === 'day') {
@@ -2324,204 +2392,242 @@ export function PlanningPage({
           >
             <div style={{ fontSize: 18, fontWeight: 800, color: '#202737', marginBottom: 4 }}>
               {aiConfirmMode === 'full'
-                ? '确认 Block 配置信息'
+                ? (blockStep === 'form' ? '新建训练 Block' : `框架预览 · ${blockFramework?.block_name || ''}`)
                 : aiConfirmMode === 'day'
                   ? '课前状态评估'
-                  : '周规划 — 训练日设置'}
+                  : `${selectedBlock?.title || 'Block'} · Week ${selectedWeek?.week_num || 1}`}
             </div>
             <div style={{ fontSize: 12, color: '#7B8498', marginBottom: 10 }}>
               {aiConfirmMode === 'full'
-                ? '补充信息后将用规则推荐 Block 目标并自动生成周框架'
+                ? (blockStep === 'form' ? '填写目标和参数，点击预览生成框架（不调用 AI）' : '确认后将直接创建 Block 和所有训练周')
                 : aiConfirmMode === 'day'
                 ? `${selectedDay?.day || '周一'} · ${planConfirmForm.selectedTier === 'ultra' ? 'Ultra 高级训练' : planConfirmForm.selectedTier === 'pro' ? 'Pro 进阶训练' : 'Standard 基础训练'}`
-                : `${selectedBlock?.title || 'Block'} · Week ${selectedWeek?.week_num || 1} · 不调用 AI，直接应用`}
+                : `${(selectedWeek as any)?.week_theme || ''} · 调整本周训练安排`}
             </div>
 
             {aiConfirmMode === 'full' ? (
-              <div style={{ display: 'grid', gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 客户具体需求</div>
-                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>客户的主诉、期望目标、时间要求等</div>
-                  <textarea
-                    value={planConfirmForm.clientNeeds}
-                    onChange={(e) => setPlanConfirmForm((prev) => ({ ...prev, clientNeeds: e.target.value }))}
-                    placeholder="例：客户希望 3 个月内减脂 5kg，同时改善圆肩驼背，每周可训练 3 次..."
-                    style={{
-                      marginTop: 8,
-                      width: '100%',
-                      minHeight: 64,
-                      borderRadius: 12,
-                      border: '2px solid #B6B9FF',
-                      background: '#FFFFFF',
-                      padding: '9px 10px',
-                      fontSize: 13,
-                      color: '#25304A',
-                      outline: 'none',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 优先目标</div>
-                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>可多选，按重要性排列</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                    {PLAN_PRIORITY_OPTIONS.map((goal) => {
-                      const on = planConfirmForm.priorityGoals.includes(goal);
-                      return (
-                        <button
-                          key={goal}
-                          type="button"
-                          onClick={() => togglePriorityGoal(goal)}
+              blockStep === 'form' ? (
+                <div style={{ display: 'grid', gap: 11 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>1. 优先目标（可多选）</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
+                      {(['减脂塑形', '增肌力量', '运动表现', '体态矫正', '康复训练', '心肺耐力'] as const).map(g => (
+                        <button key={g} type="button"
+                          onClick={() => setBlockGoals(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g])}
                           style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '7px 11px',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: '#202737',
-                            cursor: 'pointer',
+                            borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            border: blockGoals.includes(g) ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: blockGoals.includes(g) ? '#8A8DFF' : '#FFF',
+                            color: blockGoals.includes(g) ? '#FFF' : '#374151',
                           }}
-                        >
-                          {goal}
-                        </button>
-                      );
-                    })}
+                        >{g}</button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 每周训练频率</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {PLAN_FREQUENCY_OPTIONS.map((opt) => {
-                      const on = planConfirmForm.weeklyFrequency === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, weeklyFrequency: opt.value }))}
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>2. 训练方向</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 7 }}>
+                      {([
+                        { value: 'strength', label: '力量为主' },
+                        { value: 'cardio',   label: '体能为主' },
+                        { value: 'technique',label: '技术为主' },
+                        { value: 'recovery', label: '恢复为主' },
+                        { value: 'balanced', label: '综合均衡' },
+                      ]).map(opt => (
+                        <button key={opt.value} type="button"
+                          onClick={() => setBlockDir(opt.value)}
                           style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 6px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#202737' }}>{opt.value}次/周</div>
-                          <div style={{ fontSize: 11, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>4. 教练分析与规划思路</div>
-                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>你的专业判断：训练分期思路、重点关注、风险评估等</div>
-                  <textarea
-                    value={planConfirmForm.coachAnalysis}
-                    onChange={(e) => setPlanConfirmForm((prev) => ({ ...prev, coachAnalysis: e.target.value }))}
-                    placeholder="例：客户核心力量薄弱，先安排 4 周基础稳定期，再进入力量发展期。注意膝关节旧伤，避免大重量深蹲..."
-                    style={{
-                      marginTop: 8,
-                      width: '100%',
-                      minHeight: 64,
-                      borderRadius: 12,
-                      border: '1px solid #D9DCE6',
-                      background: '#FFFFFF',
-                      padding: '9px 10px',
-                      fontSize: 13,
-                      color: '#25304A',
-                      outline: 'none',
-                    }}
-                  />
-                </div>
-              </div>
-            ) : aiConfirmMode === 'week' ? (
-              <div style={{ display: 'grid', gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 选择训练日</div>
-                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>勾选后可在右侧输入当天训练重点</div>
-                  <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-                    {WEEKDAY_OPTIONS.map((day) => {
-                      const on = planConfirmForm.weekSelectedDays.includes(day);
-                      return (
-                        <div key={day} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <button
-                            type="button"
-                            onClick={() => setPlanConfirmForm((prev) => {
-                              const days = prev.weekSelectedDays.includes(day)
-                                ? prev.weekSelectedDays.filter(d => d !== day)
-                                : [...prev.weekSelectedDays, day];
-                              return { ...prev, weekSelectedDays: days };
-                            })}
-                            style={{
-                              flexShrink: 0, width: 54, borderRadius: 8,
-                              border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                              background: on ? '#F4F5FF' : '#FFFFFF',
-                              padding: '5px 0', fontSize: 12, fontWeight: 700,
-                              color: on ? '#5A5EFF' : '#7B8498', cursor: 'pointer',
-                            }}
-                          >{day}</button>
-                          {on && (
-                            <input
-                              type="text"
-                              placeholder={`${day} 训练重点（如：下肢力量）`}
-                              value={planConfirmForm.weekDayFocus[day] || ''}
-                              onChange={(e) => setPlanConfirmForm((prev) => ({
-                                ...prev,
-                                weekDayFocus: { ...prev.weekDayFocus, [day]: e.target.value },
-                              }))}
-                              style={{
-                                flex: 1, borderRadius: 8, border: '1px solid #D9DCE6',
-                                padding: '5px 8px', fontSize: 12, color: '#25304A', outline: 'none',
-                              }}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 本周强度阶段</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 8 }}>
-                    {(['build', 'peak', 'deload'] as const).map((phase) => {
-                      const labels: Record<string, string> = { build: '渐进加载', peak: '峰值冲击', deload: '卸载恢复' };
-                      const descs: Record<string, string> = { build: '逐步提升强度', peak: '冲击极限', deload: '降量30%恢复' };
-                      const on = planConfirmForm.weekIntensityPhase === phase;
-                      return (
-                        <button key={phase} type="button"
-                          onClick={() => setPlanConfirmForm(prev => ({ ...prev, weekIntensityPhase: phase }))}
-                          style={{
-                            borderRadius: 10, border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF', padding: '8px 6px',
+                            borderRadius: 8, padding: '6px 2px', fontSize: 11, fontWeight: 700,
                             textAlign: 'center', cursor: 'pointer',
-                          }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{labels[phase]}</div>
-                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{descs[phase]}</div>
-                        </button>
-                      );
-                    })}
+                            border: blockDir === opt.value ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: blockDir === opt.value ? '#F4F5FF' : '#FFF',
+                            color: blockDir === opt.value ? '#5A5EFF' : '#7B8498',
+                          }}
+                        >{opt.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>3. 每周频率</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 7 }}>
+                      {[1, 2, 3, 4, 5].map(n => (
+                        <button key={n} type="button"
+                          onClick={() => setBlockFreq(n)}
+                          style={{
+                            borderRadius: 8, padding: '6px 2px', fontSize: 12, fontWeight: 700,
+                            textAlign: 'center', cursor: 'pointer',
+                            border: blockFreq === n ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: blockFreq === n ? '#F4F5FF' : '#FFF',
+                            color: blockFreq === n ? '#5A5EFF' : '#7B8498',
+                          }}
+                        >{n}次</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>4. 周期长度</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 7 }}>
+                      {[2, 4, 6, 8, 12].map(n => (
+                        <button key={n} type="button"
+                          onClick={() => setBlockWeeks(n)}
+                          style={{
+                            borderRadius: 8, padding: '6px 2px', fontSize: 12, fontWeight: 700,
+                            textAlign: 'center', cursor: 'pointer',
+                            border: blockWeeks === n ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: blockWeeks === n ? '#F4F5FF' : '#FFF',
+                            color: blockWeeks === n ? '#5A5EFF' : '#7B8498',
+                          }}
+                        >{n}周</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>5. 教练备注（选填）</div>
+                    <textarea
+                      value={blockNote}
+                      onChange={e => setBlockNote(e.target.value)}
+                      placeholder="例：客户核心薄弱，先以稳定训练为主..."
+                      style={{
+                        marginTop: 6, width: '100%', minHeight: 48, borderRadius: 8,
+                        border: '1px solid #D9DCE6', background: '#FFF',
+                        padding: '7px 10px', fontSize: 12, color: '#25304A', outline: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: '#3D3F9F', marginBottom: 8 }}>
+                    {blockFramework?.block_name}
+                  </div>
+                  <div style={{ display: 'grid', gap: 4, maxHeight: 280, overflowY: 'auto' }}>
+                    {(blockFramework?.weeks || []).map((w: any) => (
+                      <div key={w.week_num} style={{
+                        borderRadius: 8, padding: '7px 10px',
+                        background: 'rgba(255,255,255,.75)', border: '1px solid #E4E7F0',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#374151' }}>Week {w.week_num}</span>
+                          <span style={{ fontSize: 11, color: '#6B7280' }}>{w.week_title || w.week_theme}</span>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, borderRadius: 4, padding: '1px 6px',
+                            background: w.intensity_phase === 'deload' ? '#E0E2EA' : w.intensity_phase === 'peak' ? '#FDE9C8' : '#DBEAFE',
+                            color: w.intensity_phase === 'deload' ? '#6B7280' : w.intensity_phase === 'peak' ? '#B45309' : '#1D4ED8',
+                          }}>{w.intensity_phase}</span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                          {(w.days || []).map((d: any) => (
+                            <span key={d.day} style={{
+                              fontSize: 10, color: '#5A5EFF', background: '#EEF0FF',
+                              borderRadius: 4, padding: '1px 7px',
+                            }}>{d.day} · {d.name}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            ) : aiConfirmMode === 'week' ? (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {/* 只读训练日列表 */}
+                <div style={{ background: 'rgba(255,255,255,.65)', borderRadius: 8, padding: '8px 10px', border: '1px solid #E4E7F0' }}>
+                  {(selectedWeek?.days || []).length === 0 ? (
+                    <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', padding: '4px 0' }}>本周暂无训练日</div>
+                  ) : (selectedWeek?.days || []).map((d: any) => (
+                    <div key={d.id} style={{ fontSize: 12, color: '#374151', padding: '2px 0' }}>
+                      {d.day} · {d.name || d.focus || ''}
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 5 }}>
+                    系统已根据Block目标自动安排本周训练日
                   </div>
                 </div>
 
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 特殊备注（可选）</div>
-                  <textarea
-                    value={planConfirmForm.weekNote}
-                    onChange={(e) => setPlanConfirmForm((prev) => ({ ...prev, weekNote: e.target.value }))}
-                    placeholder="例：客户本周膝盖有轻微不适，避免跳跃动作..."
+                {/* 变动 Toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>本周有变动</span>
+                  <button
+                    type="button"
+                    onClick={() => setWeekHasChange(v => !v)}
                     style={{
-                      marginTop: 8, width: '100%', minHeight: 52, borderRadius: 10,
-                      border: '1px solid #D9DCE6', background: '#FFFFFF',
-                      padding: '9px 10px', fontSize: 13, color: '#25304A', outline: 'none',
+                      width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                      background: weekHasChange ? '#8A8DFF' : '#D1D5DB',
+                      position: 'relative', transition: 'background .2s', flexShrink: 0,
                     }}
-                  />
+                  >
+                    <span style={{
+                      position: 'absolute', top: 3,
+                      left: weekHasChange ? 19 : 3, width: 16, height: 16,
+                      borderRadius: '50%', background: '#FFF', transition: 'left .2s',
+                    }} />
+                  </button>
                 </div>
+
+                {/* 变动调整区域 */}
+                {weekHasChange && (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {weekEditDays.map((d: any, i: number) => (
+                      <div key={d.id || d.day} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={!!d.checked}
+                          onChange={() => setWeekEditDays(prev => prev.map((x: any, xi: number) =>
+                            xi === i ? { ...x, checked: !x.checked } : x
+                          ))}
+                          style={{ width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }}
+                        />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', minWidth: 30 }}>{d.day}</span>
+                        {d.editingFocus ? (
+                          <input
+                            type="text"
+                            value={d.focus || ''}
+                            autoFocus
+                            onChange={e => setWeekEditDays(prev => prev.map((x: any, xi: number) =>
+                              xi === i ? { ...x, focus: e.target.value, name: e.target.value } : x
+                            ))}
+                            onBlur={() => setWeekEditDays(prev => prev.map((x: any, xi: number) =>
+                              xi === i ? { ...x, editingFocus: false } : x
+                            ))}
+                            style={{ flex: 1, fontSize: 12, border: '1px solid #D9DCE6', borderRadius: 6, padding: '3px 7px', outline: 'none' }}
+                          />
+                        ) : (
+                          <span
+                            onClick={() => setWeekEditDays(prev => prev.map((x: any, xi: number) =>
+                              xi === i ? { ...x, editingFocus: true } : x
+                            ))}
+                            style={{ flex: 1, fontSize: 12, color: '#5A5EFF', cursor: 'text', borderBottom: '1px dashed #C4C8E0', paddingBottom: 1 }}
+                          >{d.focus || d.name || '点击编辑训练重点'}</span>
+                        )}
+                      </div>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWeekPhaseOverride('deload');
+                        setWeekEditDays((prev: any[]) => prev.map((x: any, i: number) => ({
+                          ...x, checked: i < 3, focus: '低强度恢复', name: '低强度恢复', editingFocus: false,
+                        })));
+                      }}
+                      style={{
+                        borderRadius: 8, border: '1px solid #D9DCE6', background: '#F9FAFB',
+                        padding: '6px 10px', fontSize: 11, fontWeight: 700, color: '#6B7280',
+                        cursor: 'pointer', textAlign: 'left',
+                      }}
+                    >一键切换为 Deload 周</button>
+
+                    <textarea
+                      value={weekChangeNote}
+                      onChange={e => setWeekChangeNote(e.target.value)}
+                      placeholder="如：客户出差本周只能2次 / 膝盖不适避开下肢"
+                      style={{
+                        borderRadius: 8, border: '1px solid #D9DCE6', padding: '7px 10px',
+                        fontSize: 12, color: '#25304A', outline: 'none', minHeight: 44, width: '100%',
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{ display: 'grid', gap: 12 }}>
@@ -2786,11 +2892,20 @@ export function PlanningPage({
                   marginRight: 6,
                 }}
               >
-                {aiConfirmMode === 'full' ? '推荐 Block 目标' : aiConfirmMode === 'week' ? '✓ 应用训练日设置' : '生成单次训练计划'}
+                {aiConfirmMode === 'full'
+                  ? (blockFrameworkLoading ? '生成中...' : blockStep === 'form' ? '预览框架' : '确认创建')
+                  : aiConfirmMode === 'week' ? '确认应用'
+                  : '生成单次训练计划'}
               </button>
               <button
                 type="button"
-                onClick={() => setAiConfirmMode(null)}
+                onClick={() => {
+                  if (aiConfirmMode === 'full' && blockStep === 'preview') {
+                    setBlockStep('form');
+                  } else {
+                    setAiConfirmMode(null);
+                  }
+                }}
                 style={{
                   height: 30,
                   borderRadius: 8,
@@ -2803,7 +2918,7 @@ export function PlanningPage({
                   fontWeight: 700,
                 }}
               >
-                取消
+                {aiConfirmMode === 'full' && blockStep === 'preview' ? '返回修改' : '取消'}
               </button>
             </div>
           </div>
