@@ -4,6 +4,7 @@ import { CardDescription, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import type { Block, Client, TrainingDay, TrainingWeek } from '@/lib/db';
 import { getClientsFromCache, saveClient, updateClientsCache } from '@/lib/store';
+import { usePlans } from '@/features/plans/usePlans';
 
 // ─── 工具 ──────────────────────────────────────────────────────────────────────
 function cn(...parts: Array<string | false | null | undefined>) {
@@ -665,6 +666,9 @@ export function PlanningPage({
   onOpenSession: (client: Client) => void;
 }) {
   const [client, setClient] = useState<Client | null>(null);
+  const { plan: activePlan, saveDraft: planSaveDraft, publish: planPublish, rollback: planRollback, markReviewReady: planMarkReviewReady } = usePlans(selectedClientId);
+  const activePlanRef = useRef(activePlan);
+  useEffect(() => { activePlanRef.current = activePlan; }, [activePlan]);
 
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [selectedWeekId, setSelectedWeekId] = useState<string | null>(null);
@@ -843,6 +847,8 @@ export function PlanningPage({
       if (merged.plan_published_version == null) merged.plan_published_version = Number(prev?.plan_published_version || 0);
       if (merged.published_blocks == null && prev?.published_blocks) merged.published_blocks = prev.published_blocks;
       if (merged.plan_published_at == null && prev?.plan_published_at) merged.plan_published_at = prev.plan_published_at;
+      // 双写到 /api/plans（fire-and-forget）
+      void planSaveDraft(merged.blocks || []).catch((e: unknown) => console.warn('[PlanningPage] plan dual-write failed:', e));
     } else {
       if (merged.plan_draft_version == null) merged.plan_draft_version = Number(prev?.plan_draft_version || 1);
       if (merged.plan_draft_status == null) merged.plan_draft_status = (prev as any)?.plan_draft_status || 'draft';
@@ -899,6 +905,8 @@ export function PlanningPage({
       });
       const updated = (json as any)?.client as Client | undefined;
       if (updated) persistClient(updated);
+      // 双写到 /api/plans
+      void planMarkReviewReady().catch((e: unknown) => console.warn('[PlanningPage] plan review-ready dual-write failed:', e));
     } catch (e: any) {
       setError('提交待发布失败：' + (e?.message || String(e)));
     } finally {
@@ -924,6 +932,8 @@ export function PlanningPage({
         persistClient(updated);
         syncClientMirrorToLocal(updated);
         setPublishConfirmOpen(false);
+        // 双写到 /api/plans
+        void planPublish((client as any).coachCode || '', (client as any).coachName || '').catch((e: unknown) => console.warn('[PlanningPage] plan publish dual-write failed:', e));
       }
     } catch (e: any) {
       setError('发布失败：' + (e?.message || String(e)));
@@ -948,6 +958,8 @@ export function PlanningPage({
         syncClientMirrorToLocal(updated);
         setRollbackPickerOpen(false);
         setRollbackVersion('');
+        // 双写到 /api/plans
+        void planRollback(version).catch((e: unknown) => console.warn('[PlanningPage] plan rollback dual-write failed:', e));
       }
     } catch (e: any) {
       setError('回滚失败：' + (e?.message || String(e)));

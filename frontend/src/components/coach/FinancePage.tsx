@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { getClientsFromCache, saveClient, updateClientsCache } from '@/lib/store';
 import type { Client } from '@/lib/db';
+import { useFinances } from '@/features/finances/useFinances';
 
 const SESSION_PRICE: Record<string, number> = {
   standard: 328,
@@ -74,6 +75,7 @@ function PaymentForm({
 export function FinancePage({ selectedClientId }: { selectedClientId: string | null }) {
   const [client, setClient] = useState<Client | null>(null);
   const [showPayForm, setShowPayForm] = useState(false);
+  const { createRecord, loadFinances } = useFinances(selectedClientId);
 
   useEffect(() => {
     const list = getClientsFromCache();
@@ -82,6 +84,7 @@ export function FinancePage({ selectedClientId }: { selectedClientId: string | n
       return;
     }
     setClient(list.find((c) => c.id === selectedClientId) || null);
+    void loadFinances();
   }, [selectedClientId]);
 
   const persistClient = (next: Client) => {
@@ -97,8 +100,9 @@ export function FinancePage({ selectedClientId }: { selectedClientId: string | n
 
   const handleAddPayment = (amount: number, note: string) => {
     if (!client) return;
+    const dateStr = new Date().toLocaleDateString('zh-CN');
     const weeklyData = [...(client.weeklyData || []), {
-      date: new Date().toLocaleDateString('zh-CN'),
+      date: dateStr,
       paid: amount,
       note: note || '',
       weight: null,
@@ -106,6 +110,15 @@ export function FinancePage({ selectedClientId }: { selectedClientId: string | n
       attendance: null,
     }];
     persistClient({ ...client, weeklyData } as Client);
+    void createRecord({
+      type: 'purchase',
+      amount,
+      note: note || '',
+      date: new Date().toISOString().slice(0, 10),
+      coachCode: (client as any).coachCode || '',
+    }).catch((err) => {
+      console.error('[FinancePage] Failed to write finance record:', err);
+    });
     setShowPayForm(false);
   };
 
