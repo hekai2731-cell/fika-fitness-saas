@@ -16,6 +16,7 @@ export type TrainingWeek = {
 export type Block = {
   id: string;
   title: string;
+  goal?: string;
   training_weeks: TrainingWeek[];
 };
 

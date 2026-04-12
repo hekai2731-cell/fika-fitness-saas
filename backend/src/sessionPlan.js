@@ -1,14 +1,18 @@
+import { resolveDepthParams } from './depthResolver.js';
+
 export async function generateSessionPlan(input = {}) {
   const sessionTier = input.sessionTier || 'standard';
+  const membershipLevel = input.membershipLevel || 'standard';
   const lastRpe = input.lastSessionRpe ?? 0;
   const blockIndex = input.blockIndex ?? 0;
   const lastWeekBrief = String(input.lastWeekBrief || '').trim();
   const recentSessions = Array.isArray(input.recentSessions) ? input.recentSessions : [];
 
   const intensity = blockIndex % 3 === 2 ? 'deload' : blockIndex % 3 === 1 ? 'peak' : 'build';
-  const intensityLabel = intensity === 'deload' ? '卸载期 Deload' : intensity === 'peak' ? '峰值期 Peak' : '加载期 Build';
+  const intensityPhase = String(input.intensityPhase || intensity);
+  const intensityLabel = intensityPhase === 'deload' ? '卸载期 Deload' : intensityPhase === 'peak' ? '峰値期 Peak' : '加载期 Build';
 
-  let statusScore = 3;
+  let statusScore = Number(input.statusScore || 3);
   if (input.preSessionData) {
     const { recoveryStatus, todayStatus } = input.preSessionData;
     if (String(recoveryStatus || '').includes('3天+') && String(todayStatus || '').includes('状态好')) statusScore = 5;
@@ -17,6 +21,9 @@ export async function generateSessionPlan(input = {}) {
   }
   if (lastRpe >= 8) statusScore = Math.min(statusScore, 2);
   if (lastRpe <= 4 && lastRpe > 0) statusScore = Math.max(statusScore, 4);
+
+  // ── 四道限制过滤 ───────────────────────────────────────
+  const depthParams = resolveDepthParams({ membershipLevel, tier: sessionTier, statusScore, intensityPhase });
 
   let rpeAdjustNote = '';
   let rpeMode = '正常';
@@ -32,6 +39,10 @@ export async function generateSessionPlan(input = {}) {
 
   const ultraRecoveryMode = sessionTier === 'ultra' && lastRpe > 7;
 
+  // 由 resolveDepthParams 统一决定模块数和每模块动作数（必须在 prompt builder 前定义）
+  const moduleCount      = depthParams.moduleCount;
+  const exPerModOverride = depthParams.exPerMod;
+
   const GYM_EQUIPMENT_PROMPT = `
 【FiKA 场馆可用设备（所有动作必须基于以下设备）】
 功能区：药球、地雷管、壶铃（8-48kg）、跳箱、弹力带（各规格）、战绳、风阻单车、雪橇车、TRX
@@ -43,8 +54,8 @@ export async function generateSessionPlan(input = {}) {
 `;
 
   const buildStandardPrompt = () => {
-    const canSuperset = statusScore >= 3 && intensity !== 'deload';
-    const exPerMod = intensity === 'deload' ? 2 : 3;
+    const canSuperset = statusScore >= 3 && intensityPhase !== 'deload';
+    const exPerMod = exPerModOverride;
 
     return `
 【Standard 档位 · 肌肉解剖视角 · 感知优先】
@@ -100,7 +111,7 @@ ${GYM_EQUIPMENT_PROMPT}
   };
 
   const buildProPrompt = () => {
-    const exPerMod = intensity === 'deload' ? 2 : 3;
+    const exPerMod = exPerModOverride;
 
     const PRO_TEMPLATES = `
 【Pro 万能模板库（从中选择最符合今日训练重点的1个）】
@@ -238,7 +249,7 @@ ${GYM_EQUIPMENT_PROMPT}
   };
 
   const buildUltraPrompt = () => {
-    const exPerMod = intensity === 'deload' ? 2 : 4;
+    const exPerMod = exPerModOverride;
 
     const ULTRA_TEMPLATES = `
 【Ultra 万能模板库（从中选择最符合今日训练重点的组合）】
@@ -436,8 +447,6 @@ ${GYM_EQUIPMENT_PROMPT}
         ? 'Pro 进阶档（动力链视角）'
         : 'Standard 基础档（肌肉解剖视角）';
 
-  const moduleCount = sessionTier === 'ultra' ? (ultraRecoveryMode ? 6 : 6) : sessionTier === 'pro' ? 5 : 3;
-
   let systemPrompt = `你是 FiKA Fitness 的训练课程设计师。
 根据客户档位、体能数据、评估反馈，生成完整的单次课程训练方案。
 
@@ -450,6 +459,11 @@ ${GYM_EQUIPMENT_PROMPT}
 - 日重点：${input.dayFocus || '无'}
 ${rpeAdjustNote ? `- 强度调整：${rpeMode}模式（${rpeAdjustNote}）` : ''}
 ${statusScore >= 4 ? '- 状态评估：状态良好' : statusScore <= 2 ? '- 状态评估：状态较差，保守执行' : '- 状态评估：状态中等，正常执行'}
+- 会员档位：${membershipLevel}
+- 训练时长：${depthParams.duration}
+- 模块数（强制）：${depthParams.moduleCount} 个
+- 每模块动作数：${depthParams.exPerMod} 个
+- 超级组上限：${depthParams.supersetMax} 个${depthParams.forceReason ? `\n⚠️ ${depthParams.forceReason}` : ''}${depthParams.adjustReason ? `\n⚠️ 深度调整：${depthParams.adjustReason}` : ''}${depthParams.mismatchWarning ? `\n⚠️ 档位提示：${depthParams.mismatchWarning}` : ''}${depthParams.qualityWarning ? `\n⚠️ 质量提示：${depthParams.qualityWarning}` : ''}
 
 ${tierPrompt}
 

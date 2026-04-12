@@ -80,6 +80,10 @@ interface PlanConfirmForm {
   sessionGoal: string;
   sessionDurationMinutes: string;
   preSessionNote: string;
+  // 周规划——训练日选择（不调 AI）
+  weekSelectedDays: string[];           // e.g. ['周一', '周三', '周五']
+  weekDayFocus: Record<string, string>; // day -> focus text
+  weekIntensityPhase: 'build' | 'peak' | 'deload';
 }
 
 const PLAN_PRIORITY_OPTIONS = ['减脂塑形', '增肌力量', '体态矫正', '运动表现', '康复训练', '心肺耐力'] as const;
@@ -90,24 +94,6 @@ const PLAN_FREQUENCY_OPTIONS: Array<{ value: string; label: string; desc: string
   { value: '4', label: '4次/周', desc: '进阶训练' },
   { value: '5', label: '5+次/周', desc: '高频冲刺' },
 ];
-
-const WEEK_SESSION_COUNT_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
-  { value: '1', label: '1节', desc: '恢复优先' },
-  { value: '2', label: '2节', desc: '基础维持' },
-  { value: '3', label: '3节', desc: '稳步提升' },
-  { value: '4', label: '4节', desc: '进阶训练' },
-  { value: '5', label: '5节', desc: '高频冲刺' },
-];
-
-const WEEK_DIRECTION_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
-  { value: 'strength', label: '力量为主', desc: '大量复合动作' },
-  { value: 'conditioning', label: '体能为主', desc: '心肺+循环训练' },
-  { value: 'technique', label: '技术为主', desc: '动作质量优先' },
-  { value: 'recovery', label: '恢复为主', desc: 'Deload / 恢复周' },
-  { value: 'balanced', label: '综合均衡', desc: '力量+体能 平衡' },
-];
-
-const WEEK_FOCUS_OPTIONS = ['上肢推', '上肢拉', '下肢', '核心', '心肺', '全身', '灵活性', '爆发力'] as const;
 
 const RECOVERY_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
   { value: '1-2天:还酸痛', label: '1-2天:还酸痛', desc: '肌肉酸痛明显' },
@@ -151,6 +137,9 @@ const defaultPlanConfirmForm: PlanConfirmForm = {
   sessionGoal: 'strength',
   sessionDurationMinutes: '60',
   preSessionNote: '',
+  weekSelectedDays: ['周一', '周三', '周五'],
+  weekDayFocus: {},
+  weekIntensityPhase: 'build',
 };
 
 function readAiSettings(): AiSettings {
@@ -675,7 +664,7 @@ export function PlanningPage({
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
 
   const [loadingDay, setLoadingDay] = useState(false);
-  const [loadingWeek, setLoadingWeek] = useState(false);
+  const [loadingWeek] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
 
   // ── AI 生成分步提示词 ────────────────────────────────
@@ -1097,10 +1086,128 @@ export function PlanningPage({
     }
   };
 
+  // ── Block 推荐流 state ────────────────────────────────────────────
+  const [blockRec, setBlockRec] = useState<{
+    block_title: string; block_goal: string; weeks: number;
+    weakest_dimension: string; membership_level: string;
+  } | null>(null);
+  const [blockRecOpen,    setBlockRecOpen]    = useState(false);
+  const [blockRecLoading, setBlockRecLoading] = useState(false);
+  const [blockRecForm, setBlockRecForm] = useState({ title: '', goal: '', weeks: 8 });
+
+  // ── statusScore 辅助计算 ──────────────────────────────────────────
+  const computeStatusScore = (recoveryStatus: string, todayStatus: string): number => {
+    if (String(todayStatus).includes('状态好')) return 5;
+    if (String(todayStatus).includes('状态差') || String(recoveryStatus).includes('酸痛')) return 1;
+    return 3;
+  };
+
+  // ── 拉取 Block 推荐（不调 AI，纯规则）────────────────────────────
+  const fetchBlockRecommendation = async () => {
+    if (!client || blockRecLoading) return;
+    const clientId = String((client as any).roadCode || client.id || 'unknown');
+    setBlockRecLoading(true);
+    setError(null);
+    try {
+      const rec = await fetchJsonOrThrow(apiUrl('/api/block/recommend'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId }),
+      });
+      setBlockRec(rec);
+      setBlockRecForm({ title: String(rec.block_title || ''), goal: String(rec.block_goal || ''), weeks: Number(rec.weeks || 8) });
+      setBlockRecOpen(true);
+    } catch (e: any) {
+      setError('Block 推荐失败：' + (e?.message || String(e)));
+    } finally {
+      setBlockRecLoading(false);
+    }
+  };
+
+  // ── 确认 Block 推荐 → 生成 Week 框架，不调 AI ───────────────────
+  const applyBlockRecommendation = async () => {
+    if (!client) return;
+    setBlockRecOpen(false);
+    setLoadingFull(true);
+    startAiSteps('full');
+    try {
+      const fw = await fetchJsonOrThrow(apiUrl('/api/week/framework'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blockGoal: blockRecForm.goal, totalWeeks: blockRecForm.weeks }),
+      });
+      const rawWeeks: any[] = Array.isArray((fw as any)?.weeks) ? (fw as any).weeks : [];
+      const training_weeks: TrainingWeek[] = rawWeeks.map((w: any, wi: number) => ({
+        id: genId('week'),
+        week_num: Number(w?.week_num || wi + 1),
+        intensity_phase: String(w?.intensity_phase || 'build'),
+        week_theme: String(w?.week_theme || ''),
+        week_brief: String(w?.week_brief || ''),
+        days: [],
+      }));
+      const newBlock: Block = {
+        id: genId('block'),
+        title: blockRecForm.title,
+        goal: blockRecForm.goal,
+        training_weeks,
+      };
+      const next: Client = { ...client, blocks: [...(client.blocks || []), newBlock] };
+      persistClient(next);
+      setSelectedBlockId(newBlock.id);
+      setSelectedWeekId(training_weeks[0]?.id || null);
+      setSelectedDayId(null);
+    } catch (e: any) {
+      setError('生成 Week 框架失败：' + (e?.message || String(e)));
+    } finally {
+      stopAiSteps('full');
+      setLoadingFull(false);
+    }
+  };
+
+  // ── Week 规则应用：直接从表单生成训练日，不调 AI ─────────────────
+  const applyWeekFromForm = () => {
+    if (!client || !selectedBlock || !selectedWeek) return;
+    try {
+      const days: TrainingDay[] = planConfirmForm.weekSelectedDays.map((dayName) => ({
+        id: genId('day'),
+        day: dayName,
+        name: planConfirmForm.weekDayFocus[dayName] || dayName,
+        focus: planConfirmForm.weekDayFocus[dayName] || '',
+        modules: [],
+      }));
+      const next: Client = {
+        ...client,
+        blocks: (client.blocks || []).map(b =>
+          b.id !== selectedBlock.id ? b : {
+            ...b,
+            training_weeks: (b.training_weeks || []).map(w =>
+              w.id !== selectedWeek.id ? w : {
+                ...w,
+                intensity_phase: planConfirmForm.weekIntensityPhase,
+                days,
+              }
+            ),
+          }
+        ),
+      };
+      persistClient(next);
+      if (days[0]) setSelectedDayId(days[0].id);
+    } catch (e: any) {
+      setError('周规划应用失败：' + (e?.message || String(e)));
+    }
+  };
+
   const openAiConfirm = (mode: AiConfirmMode) => {
     const currentTier = String(tierOverride || client?.tier || 'standard') as 'standard' | 'pro' | 'ultra';
     const nextTier = currentTier === 'ultra' && aiSettings.training_ultra === false ? 'pro' : currentTier;
-    setPlanConfirmForm({ ...defaultPlanConfirmForm, selectedTier: nextTier });
+    // 周规划：预填选中周已有的 intensity_phase
+    const intensityPhase = (selectedWeek as any)?.intensity_phase || 'build';
+    setPlanConfirmForm({
+      ...defaultPlanConfirmForm,
+      selectedTier: nextTier,
+      weekIntensityPhase: intensityPhase as 'build' | 'peak' | 'deload',
+      weekSelectedDays: (selectedWeek?.days || []).map((d: any) => String(d.day || '')).filter(Boolean),
+    });
     setAiConfirmMode(mode);
   };
 
@@ -1119,14 +1226,6 @@ export function PlanningPage({
     void onGenerateDayPlan(tier);
   };
 
-  const toggleWeekFocusArea = (area: string) => {
-    setPlanConfirmForm((prev) => ({
-      ...prev,
-      weekFocusAreas: prev.weekFocusAreas.includes(area)
-        ? prev.weekFocusAreas.filter((g) => g !== area)
-        : [...prev.weekFocusAreas, area],
-    }));
-  };
 
   const togglePriorityGoal = (goal: string) => {
     setPlanConfirmForm((prev) => ({
@@ -1177,12 +1276,12 @@ export function PlanningPage({
   const handleConfirmGenerate = () => {
     if (aiConfirmMode === 'full') {
       setAiConfirmMode(null);
-      void onGenerateFullPlan();
+      void fetchBlockRecommendation();
       return;
     }
     if (aiConfirmMode === 'week') {
       setAiConfirmMode(null);
-      void onGenerateWeekPlan();
+      applyWeekFromForm();
       return;
     }
     if (aiConfirmMode === 'day') {
@@ -1500,6 +1599,9 @@ export function PlanningPage({
           dayName: selectedDay.day,
           dayFocus: selectedDay.focus || selectedDay.name,
           ...buildAiConfirmPayload(),
+          membershipLevel: String((client as any).membershipLevel || 'standard'),
+          statusScore: computeStatusScore(planConfirmForm.recoveryStatus, planConfirmForm.todayStatus),
+          intensityPhase: String((selectedWeek as any)?.intensity_phase || 'build'),
           sessionTier: forcedTier || (tierOverride as any) || client.tier || 'standard',
           lastSessionRpe: (client.sessions || []).slice(-1)[0]?.rpe || undefined,
           blockTitle: selectedBlock.title,
@@ -1687,278 +1789,6 @@ export function PlanningPage({
     }
   };
 
-  // ── AI 生成周计划 ─────────────────────────────────────────────
-  const onGenerateWeekPlan = async () => {
-    if (!client || !selectedWeek || !selectedBlock) return;
-    const clientIdentifier = String((client as any).roadCode || client.id || 'unknown');
-    setLoadingWeek(true);
-    startAiSteps('week');
-    setGeneratedPreview({ type: 'week', data: null, loading: true, error: null });
-    try {
-      // 提取最近5次数据
-      const recentSessions = extractRecentSessions(client.sessions);
-
-      let outlineByDayKey: Record<string, { day_focus: string; session_name: string }> = {};
-      try {
-        const outline = await fetchJsonOrThrow(apiUrl('/api/week-plan'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clientId: clientIdentifier,
-            clientName: client.name,
-            gender: client.gender,
-            age: client.age,
-            height: client.height,
-            weight: client.weight,
-            surveyData: (client as any).survey_data,
-            weeklyData: client.weeklyData ?? (client as any).weekly_data,
-            ...buildAiConfirmPayload(),
-            sessionTier: tierOverride || client.tier || 'standard',
-            blockTitle: selectedBlock.title,
-            weekLabel: `Week ${selectedWeek.week_num}`,
-            weeksTotal: (client as any).weeks_total ?? (client as any).weeksTotal ?? (client as any).weeks,
-            blockGoal: (selectedBlock as any).goal,
-            coachRules: (client as any).coachRules,
-            intensityPhase: (selectedBlock as any).intensity_phase,
-            recentSessions,
-            days: (selectedWeek.days || []).map((d: any, i: number) => ({
-              dayKey: d.day || `day${i + 1}`,
-              dayName: d.day,
-              dayFocus: d.focus || d.name,
-            })),
-          }),
-        });
-
-        const list = (outline as any)?.days || [];
-        outlineByDayKey = (Array.isArray(list) ? list : []).reduce((acc: any, d: any) => {
-          const k = String(d?.day_key || d?.dayKey || d?.day || d?.day_of_week || '');
-          if (k) acc[k] = { day_focus: String(d?.day_focus || ''), session_name: String(d?.session_name || '') };
-          return acc;
-        }, {});
-      } catch {
-        outlineByDayKey = {};
-      }
-
-      const dayPlans: Record<string, any> = {};
-      for (let di = 0; di < (selectedWeek.days || []).length; di++) {
-        const d = selectedWeek.days[di];
-        const outline = outlineByDayKey[String(d.day)] || outlineByDayKey[`day${di + 1}`];
-        const json = await fetchJsonOrThrow(apiUrl('/api/session-plan'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clientId: clientIdentifier,
-            clientName: client.name,
-            gender: client.gender,
-            age: client.age,
-            height: client.height,
-            weight: client.weight,
-            surveyData: (client as any).survey_data,
-            weeklyData: client.weeklyData ?? (client as any).weekly_data,
-            ...buildAiConfirmPayload(),
-            dayName: d.day,
-            dayFocus: outline?.day_focus || d.focus || d.name,
-            sessionTier: tierOverride || client.tier || 'standard',
-            lastSessionRpe: (client.sessions || []).slice(-1)[0]?.rpe || undefined,
-            recentSessions,
-            blockTitle: selectedBlock.title,
-            weekLabel: `Week ${selectedWeek.week_num}`,
-            blockIndex: Math.max(0, (client.blocks || []).findIndex(b => b.id === selectedBlock.id)),
-          }),
-        });
-        const enriched = { ...json, day_key: d.day, dayKey: d.day, day: d.day };
-        dayPlans[d.day] = enriched;
-        dayPlans[`day${di + 1}`] = enriched;
-      }
-
-      // 显示预览弹窗（用唯一 day 名去重，避免 Object.values 产生重复条目）
-      const uniqueDays = (selectedWeek.days || []).map(d => dayPlans[d.day]).filter(Boolean);
-      const previewPayload = {
-        week_theme: outlineByDayKey,
-        week_brief: Object.values(outlineByDayKey).map((v: any) => v?.day_focus || '').filter(Boolean).join(' · '),
-        days: uniqueDays,
-      };
-      // 存草稿（fire-and-forget）
-      saveDraftToApi('week', previewPayload);
-      setGeneratedPreview({
-        type: 'week',
-        data: previewPayload,
-        loading: false,
-        error: null,
-      });
-    } catch (e: any) {
-      const errorMessage = e?.message || String(e);
-      console.error('[AI] Week plan generation failed:', errorMessage);
-      setGeneratedPreview({
-        type: 'week',
-        data: null,
-        loading: false,
-        error: '生成失败：' + errorMessage,
-      });
-      setError('周计划生成失败：' + errorMessage);
-    } finally {
-      stopAiSteps('week');
-      setLoadingWeek(false);
-    }
-  };
-
-  // ── AI 生成完整规划 ───────────────────────────────────────────
-  const buildBlocksByTier = (allWeeks: TrainingWeek[], tier: string) => {
-    const weeks = Array.isArray(allWeeks) ? allWeeks : [];
-    if (weeks.length === 0) return [] as Block[];
-
-    const desiredCount = tier === 'ultra' ? 4 : tier === 'pro' ? 3 : 2;
-    const blockCount = Math.max(1, Math.min(desiredCount, weeks.length));
-
-    const titlePool =
-      tier === 'ultra'
-        ? ['Block 1 · Neural Base 神经基建', 'Block 2 · Power Flow 动力爆发', 'Block 3 · Density Peak 密度峰值', 'Block 4 · Control Deload 控制回收']
-        : tier === 'pro'
-          ? ['Block 1 · Pattern Build 模式建立', 'Block 2 · Chain Upgrade 动力链进阶', 'Block 3 · Performance Sync 功能整合']
-          : ['Block 1 · Foundation 基础激活', 'Block 2 · Strength Flow 力量推进'];
-
-    const base = Math.floor(weeks.length / blockCount);
-    let remainder = weeks.length % blockCount;
-    let cursor = 0;
-
-    return Array.from({ length: blockCount }).map((_, bi) => {
-      const size = base + (remainder > 0 ? 1 : 0);
-      remainder = Math.max(0, remainder - 1);
-      const segment = weeks.slice(cursor, cursor + size);
-      cursor += size;
-
-      const normalizedWeeks: TrainingWeek[] = segment.map((w, wi) => ({
-        ...w,
-        id: genId('week'),
-        week_num: wi + 1,
-      }));
-
-      return {
-        id: genId('block'),
-        title: titlePool[bi] || `Block ${bi + 1}`,
-        training_weeks: normalizedWeeks,
-      };
-    });
-  };
-
-  const onGenerateFullPlan = async () => {
-    if (!client) return;
-    const clientIdentifier = String((client as any).roadCode || client.id || 'unknown');
-    setLoadingFull(true);
-    startAiSteps('full');
-    setError(null);
-    try {
-      const weeksTotal = (client as any).weeks_total ?? (client as any).weeksTotal ?? (client as any).weeks ?? 12;
-      const activeTier = tierOverride || client.tier || 'standard';
-
-      // 提取客户历史和数据
-      const recentSessions = extractRecentSessions(client.sessions);
-      const totalSessions = (client.sessions || []).length;
-      const avgRpe = totalSessions > 0
-        ? Math.round((client.sessions || []).reduce((sum: number, s: any) => sum + (s.rpe || 0), 0) / totalSessions)
-        : 0;
-      const sessionTypes = new Set((client.sessions || []).map((s: any) => (s as any).type || '通用').filter(Boolean));
-
-      let blocks: Block[] | null = null;
-      let fullPlanData: any = null;
-
-      try {
-        const full = await fetchJsonOrThrow(apiUrl('/api/full-plan'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clientId: clientIdentifier,
-            clientName: client.name,
-            gender: client.gender,
-            age: client.age,
-            height: client.height,
-            weight: client.weight,
-            surveyData: (client as any).survey_data,
-            weeklyData: client.weeklyData ?? (client as any).weekly_data,
-            ...buildAiConfirmPayload(),
-            sessionTier: activeTier,
-            blockTitle: (client.blocks || [])[0]?.title || 'Block 1',
-            blockGoal: (client.blocks || [])[0] ? ((client.blocks || [])[0] as any)?.goal : undefined,
-            coachRules: (client as any).coachRules,
-            weeksTotal,
-            // 新增数据
-            recentSessions,
-            clientHistory: {
-              totalSessions,
-              avgRpe,
-              sessionTypes: Array.from(sessionTypes),
-            },
-            clientGoal: client.goal,
-            clientInjury: client.injury,
-          }),
-        });
-
-        fullPlanData = full;
-
-        const weeks: TrainingWeek[] = (Array.isArray((full as any)?.weeks) ? (full as any).weeks : []).map((w: any, wi: number) => ({
-          id: genId('week'),
-          week_num: Number(w?.week_num || wi + 1),
-          days: (Array.isArray(w?.days) ? w.days : []).map((d: any, di: number) => ({
-            id: genId('day'),
-            day: String(d?.day_key || d?.day || `day${di + 1}`),
-            name: String(d?.session_name || d?.name || ''),
-            focus: String(d?.day_focus || d?.focus || ''),
-            modules: [],
-          })),
-        }));
-
-        blocks = buildBlocksByTier(weeks, String(activeTier));
-      } catch {
-        blocks = null;
-      }
-
-      if (!blocks) {
-        const daysTemplate: Array<Pick<TrainingDay, 'day' | 'name' | 'focus'>> = [
-          { day: '周一', name: '下肢力量', focus: '下肢力量' },
-          { day: '周三', name: '上肢推拉', focus: '上肢推拉' },
-          { day: '周五', name: '全身整合', focus: '全身整合' },
-        ];
-        const training_weeks: TrainingWeek[] = Array.from({ length: Number(weeksTotal) || 12 }).map((_, wi) => ({
-          id: genId('week'),
-          week_num: wi + 1,
-          days: daysTemplate.map((d) => ({
-            id: genId('day'),
-            day: d.day,
-            name: d.name,
-            focus: d.focus,
-            modules: [],
-          })),
-        }));
-        blocks = buildBlocksByTier(training_weeks, String(activeTier));
-      }
-
-      // 存草稿（fire-and-forget）
-      saveDraftToApi('full', { blocks, fullPlanData });
-      // 显示预览弹窗而非直接保存
-      setGeneratedPreview({
-        type: 'full',
-        data: {
-          blocks,
-          fullPlanData,
-        },
-        loading: false,
-        error: null,
-      });
-    } catch (e: any) {
-      const errorMessage = e?.message || String(e);
-      console.error('[AI] Full plan generation failed:', errorMessage);
-      setGeneratedPreview({
-        type: 'full',
-        data: null,
-        loading: false,
-        error: errorMessage,
-      });
-      setError('完整规划生成失败：' + errorMessage);
-    } finally {
-      stopAiSteps('full');
-      setLoadingFull(false);
-    }
-  };
 
   const anyLoading = loadingDay || loadingWeek || loadingFull || loadingPublish || loadingRollback || loadingReviewReady;
   const draftVersion = Number(client?.plan_draft_version || 1);
@@ -1999,13 +1829,13 @@ export function PlanningPage({
           <Button
             type="button"
             className="plan-cta plan-cta-primary"
-            onClick={() => openAiConfirm('full')}
-            disabled={anyLoading}
-            title="AI 生成完整 Block / Week / Day 框架"
+            onClick={() => void fetchBlockRecommendation()}
+            disabled={anyLoading || blockRecLoading}
+            title="规则推荐 Block 目标 + 自动生成 Week 框架（不调用 AI）"
             style={{ marginLeft: 'auto' }}
           >
-            {loadingFull ? (
-              <><span className="spin" style={{ width: 14, height: 14, marginRight: 6 }} />生成中...</>
+            {blockRecLoading || loadingFull ? (
+              <><span className="spin" style={{ width: 14, height: 14, marginRight: 6 }} />{loadingFull ? '生成中...' : '推荐中...'}</>
             ) : '✨ AI block'}
           </Button>
         </div>
@@ -2494,17 +2324,17 @@ export function PlanningPage({
           >
             <div style={{ fontSize: 18, fontWeight: 800, color: '#202737', marginBottom: 4 }}>
               {aiConfirmMode === 'full'
-                ? '确认 AI Block 生成信息'
+                ? '确认 Block 配置信息'
                 : aiConfirmMode === 'day'
                   ? '课前状态评估'
-                  : '周规划 — 信息收集'}
+                  : '周规划 — 训练日设置'}
             </div>
             <div style={{ fontSize: 12, color: '#7B8498', marginBottom: 10 }}>
               {aiConfirmMode === 'full'
-                ? '补充需求后可直接生成完整规划'
+                ? '补充信息后将用规则推荐 Block 目标并自动生成周框架'
                 : aiConfirmMode === 'day'
                 ? `${selectedDay?.day || '周一'} · ${planConfirmForm.selectedTier === 'ultra' ? 'Ultra 高级训练' : planConfirmForm.selectedTier === 'pro' ? 'Pro 进阶训练' : 'Standard 基础训练'}`
-                : `${selectedBlock?.title || 'Block'} · Week ${selectedWeek?.week_num || 1}`}
+                : `${selectedBlock?.title || 'Block'} · Week ${selectedWeek?.week_num || 1} · 不调用 AI，直接应用`}
             </div>
 
             {aiConfirmMode === 'full' ? (
@@ -2612,26 +2442,67 @@ export function PlanningPage({
             ) : aiConfirmMode === 'week' ? (
               <div style={{ display: 'grid', gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 本周几节课?</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {WEEK_SESSION_COUNT_OPTIONS.map((opt) => {
-                      const on = planConfirmForm.weeklyFrequency === opt.value;
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 选择训练日</div>
+                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>勾选后可在右侧输入当天训练重点</div>
+                  <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                    {WEEKDAY_OPTIONS.map((day) => {
+                      const on = planConfirmForm.weekSelectedDays.includes(day);
                       return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, weeklyFrequency: opt.value }))}
+                        <div key={day} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <button
+                            type="button"
+                            onClick={() => setPlanConfirmForm((prev) => {
+                              const days = prev.weekSelectedDays.includes(day)
+                                ? prev.weekSelectedDays.filter(d => d !== day)
+                                : [...prev.weekSelectedDays, day];
+                              return { ...prev, weekSelectedDays: days };
+                            })}
+                            style={{
+                              flexShrink: 0, width: 54, borderRadius: 8,
+                              border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                              background: on ? '#F4F5FF' : '#FFFFFF',
+                              padding: '5px 0', fontSize: 12, fontWeight: 700,
+                              color: on ? '#5A5EFF' : '#7B8498', cursor: 'pointer',
+                            }}
+                          >{day}</button>
+                          {on && (
+                            <input
+                              type="text"
+                              placeholder={`${day} 训练重点（如：下肢力量）`}
+                              value={planConfirmForm.weekDayFocus[day] || ''}
+                              onChange={(e) => setPlanConfirmForm((prev) => ({
+                                ...prev,
+                                weekDayFocus: { ...prev.weekDayFocus, [day]: e.target.value },
+                              }))}
+                              style={{
+                                flex: 1, borderRadius: 8, border: '1px solid #D9DCE6',
+                                padding: '5px 8px', fontSize: 12, color: '#25304A', outline: 'none',
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 本周强度阶段</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 8 }}>
+                    {(['build', 'peak', 'deload'] as const).map((phase) => {
+                      const labels: Record<string, string> = { build: '渐进加载', peak: '峰值冲击', deload: '卸载恢复' };
+                      const descs: Record<string, string> = { build: '逐步提升强度', peak: '冲击极限', deload: '降量30%恢复' };
+                      const on = planConfirmForm.weekIntensityPhase === phase;
+                      return (
+                        <button key={phase} type="button"
+                          onClick={() => setPlanConfirmForm(prev => ({ ...prev, weekIntensityPhase: phase }))}
                           style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 6px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
-                          <div style={{ fontSize: 11, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
+                            borderRadius: 10, border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF', padding: '8px 6px',
+                            textAlign: 'center', cursor: 'pointer',
+                          }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{labels[phase]}</div>
+                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{descs[phase]}</div>
                         </button>
                       );
                     })}
@@ -2639,78 +2510,15 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 训练大致方向</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {WEEK_DIRECTION_OPTIONS.map((opt) => {
-                      const on = planConfirmForm.weekDirection === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, weekDirection: opt.value }))}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 6px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
-                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 重点训练部位</div>
-                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>可多选</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                    {WEEK_FOCUS_OPTIONS.map((area) => {
-                      const on = planConfirmForm.weekFocusAreas.includes(area);
-                      return (
-                        <button
-                          key={area}
-                          type="button"
-                          onClick={() => toggleWeekFocusArea(area)}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '7px 11px',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: '#202737',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {area}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>4. 特殊备注（可选）</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 特殊备注（可选）</div>
                   <textarea
                     value={planConfirmForm.weekNote}
                     onChange={(e) => setPlanConfirmForm((prev) => ({ ...prev, weekNote: e.target.value }))}
                     placeholder="例：客户本周膝盖有轻微不适，避免跳跃动作..."
                     style={{
-                      marginTop: 8,
-                      width: '100%',
-                      minHeight: 64,
-                      borderRadius: 12,
-                      border: '1px solid #D9DCE6',
-                      background: '#FFFFFF',
-                      padding: '9px 10px',
-                      fontSize: 13,
-                      color: '#25304A',
-                      outline: 'none',
+                      marginTop: 8, width: '100%', minHeight: 52, borderRadius: 10,
+                      border: '1px solid #D9DCE6', background: '#FFFFFF',
+                      padding: '9px 10px', fontSize: 13, color: '#25304A', outline: 'none',
                     }}
                   />
                 </div>
@@ -2978,7 +2786,7 @@ export function PlanningPage({
                   marginRight: 6,
                 }}
               >
-                {aiConfirmMode === 'full' ? '生成完整规划' : aiConfirmMode === 'week' ? '生成周训练计划' : '生成单次训练计划'}
+                {aiConfirmMode === 'full' ? '推荐 Block 目标' : aiConfirmMode === 'week' ? '✓ 应用训练日设置' : '生成单次训练计划'}
               </button>
               <button
                 type="button"
@@ -2996,6 +2804,71 @@ export function PlanningPage({
                 }}
               >
                 取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Block 推荐确认弹窗（纯规则，不调 AI）*/}
+      {blockRecOpen && blockRec && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(19,24,40,.38)', backdropFilter: 'blur(4px)', zIndex: 54,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => setBlockRecOpen(false)}
+        >
+          <div onClick={e => e.stopPropagation()} style={{
+            width: 'min(480px,100%)', borderRadius: 16, border: '1px solid rgba(202,208,224,.9)',
+            background: 'linear-gradient(165deg,#f5f6fb,#f0f2f8)', boxShadow: '0 18px 38px rgba(31,41,74,.22)',
+            padding: 20,
+          }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: '#202737', marginBottom: 4 }}>✨ Block 规则推荐</div>
+            <div style={{ fontSize: 12, color: '#7B8498', marginBottom: 14 }}>
+              根据{blockRec.membership_level}会员档位 + 身体资产评分，系统推荐以下配置（可修改）
+            </div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#5A5EFF', marginBottom: 4 }}>Block 标题</div>
+                <input value={blockRecForm.title} onChange={e => setBlockRecForm(p => ({ ...p, title: e.target.value }))}
+                  style={{ width: '100%', borderRadius: 8, border: '1px solid #D9DCE6', padding: '7px 10px', fontSize: 13, outline: 'none' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#5A5EFF', marginBottom: 4 }}>
+                  训练目标
+                  <span style={{ marginLeft: 6, fontSize: 11, color: '#7B8498', fontWeight: 400 }}>
+                    薄弱维度：{blockRec.weakest_dimension}
+                  </span>
+                </div>
+                <input value={blockRecForm.goal} onChange={e => setBlockRecForm(p => ({ ...p, goal: e.target.value }))}
+                  style={{ width: '100%', borderRadius: 8, border: '1px solid #D9DCE6', padding: '7px 10px', fontSize: 13, outline: 'none' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#5A5EFF', marginBottom: 4 }}>周期总周数</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[4, 6, 8, 12, 15, 26].map(w => (
+                    <button key={w} type="button"
+                      onClick={() => setBlockRecForm(p => ({ ...p, weeks: w }))}
+                      style={{
+                        flex: 1, borderRadius: 8, border: blockRecForm.weeks === w ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                        background: blockRecForm.weeks === w ? '#F4F5FF' : '#fff',
+                        padding: '5px 0', fontSize: 12, fontWeight: 700,
+                        color: blockRecForm.weeks === w ? '#5A5EFF' : '#7B8498', cursor: 'pointer',
+                      }}>{w}周</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button type="button" onClick={() => setBlockRecOpen(false)}
+                style={{ height: 32, borderRadius: 8, border: '1px solid rgba(167,178,211,.58)', background: 'rgba(242,246,255,.86)',
+                  color: 'rgba(56,66,96,.88)', padding: '0 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                取消
+              </button>
+              <button type="button" onClick={() => void applyBlockRecommendation()}
+                style={{ height: 32, borderRadius: 8, border: 'none',
+                  background: 'linear-gradient(120deg,rgba(124,132,244,.92),rgba(112,121,236,.88))',
+                  color: '#fff', padding: '0 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                确认创建 Block + Week 框架
               </button>
             </div>
           </div>

@@ -15,6 +15,7 @@ import aiRouter from './routes/ai.js';
 import sessionsRouter from './routes/sessions.js';
 import financesRouter from './routes/finances.js';
 import adminRouter from './routes/admin.js';
+import { recommendBlock, generateWeekFramework } from './blockPlanner.js';
 
 const app = express();
 
@@ -723,6 +724,32 @@ app.post('/api/survey/approve/:id', async (req, res) => {
   } catch (err) {
     console.error('[survey] approve failed', err);
     res.status(500).json({ error: 'approve failed', details: String(err) });
+  }
+});
+
+// ── 纯规则接口（不调用 AI，毫秒响应）────────────────────────────────────
+// POST /api/block/recommend — 根据客户数据推荐 Block 目标
+app.post('/api/block/recommend', async (req, res) => {
+  try {
+    const { clientId } = req.body || {};
+    if (!clientId) return res.status(400).json({ error: 'clientId is required' });
+    const client = await Client.findOne({ id: String(clientId) }).lean();
+    if (!client) return res.status(404).json({ error: 'client not found' });
+    const recommendation = recommendBlock(client);
+    res.json(recommendation);
+  } catch (err) {
+    res.status(500).json({ error: 'block recommend failed', details: String(err) });
+  }
+});
+
+// POST /api/week/framework — 自动生成 Week 节奏框架（不调用 AI）
+app.post('/api/week/framework', (req, res) => {
+  try {
+    const { blockGoal = '', totalWeeks = 8 } = req.body || {};
+    const weeks = generateWeekFramework(String(blockGoal), Number(totalWeeks));
+    res.json({ weeks });
+  } catch (err) {
+    res.status(500).json({ error: 'week framework failed', details: String(err) });
   }
 });
 
