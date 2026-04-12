@@ -40,6 +40,41 @@ router.post('/generate', async (req, res) => {
   }
 });
 
+// POST /api/ai/drafts — 直接保存草稿（不触发生成）
+router.post('/drafts', async (req, res) => {
+  try {
+    const { clientId, coachCode, planType, input_payload, output_result } = req.body || {};
+    if (!clientId || !planType || !output_result) {
+      return res.status(400).json({ error: 'clientId, planType, output_result are required' });
+    }
+    const draft = await AiDraft.create({
+      clientId: String(clientId),
+      coachCode: coachCode || '',
+      planType: String(planType),
+      input_payload: input_payload || {},
+      output_result,
+      status: 'pending',
+    });
+    res.json({ success: true, draftId: draft._id, draft: draft.toObject() });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save draft', details: String(err) });
+  }
+});
+
+// GET /api/ai/drafts/:clientId — 读取某客户的草稿列表
+router.get('/drafts/:clientId', async (req, res) => {
+  try {
+    const { status, planType } = req.query;
+    const query = { clientId: String(req.params.clientId) };
+    if (status) query.status = String(status);
+    if (planType) query.planType = String(planType);
+    const drafts = await AiDraft.find(query).sort({ createdAt: -1 }).limit(20).lean();
+    res.json(drafts);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch drafts', details: String(err) });
+  }
+});
+
 // GET /api/ai/drafts?clientId=xxx&status=pending
 router.get('/drafts', async (req, res) => {
   try {

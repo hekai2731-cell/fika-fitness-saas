@@ -997,6 +997,21 @@ export function PlanningPage({
     throw new Error(`${resp.status} ${resp.statusText}${text ? `: ${text.slice(0, 200)}` : ''}`);
   };
 
+  // ── AI 草稿存储（fire-and-forget，失败不影响主流程）────────────
+  const saveDraftToApi = (planType: string, result: any, inputPayload?: any) => {
+    try {
+      const clientId = String((client as any)?.roadCode || client?.id || 'unknown');
+      const coachCode = String((client as any)?.coachCode || '');
+      void fetch(apiUrl('/api/ai/drafts'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, coachCode, planType, output_result: result, input_payload: inputPayload || {} }),
+      }).catch((e: unknown) => console.warn('[AI] draft save failed:', e));
+    } catch (e: unknown) {
+      console.warn('[AI] draft save failed:', e);
+    }
+  };
+
   // ── 保存计划编辑结果 ─────────────────────────────────────────
   const saveDayModules = (modules: PlanModule[]) => {
     if (!client || !selectedBlock || !selectedWeek || !selectedDay) return;
@@ -1463,6 +1478,8 @@ export function PlanningPage({
         }),
       });
 
+      // 存草稿（fire-and-forget）
+      saveDraftToApi('session', json);
       // 显示预览弹窗，不直接保存
       setGeneratedPreview({
         type: 'day',
@@ -1724,6 +1741,8 @@ export function PlanningPage({
         week_brief: Object.values(outlineByDayKey).map((v: any) => v?.day_focus || '').filter(Boolean).join(' · '),
         days: uniqueDays,
       };
+      // 存草稿（fire-and-forget）
+      saveDraftToApi('week', previewPayload);
       setGeneratedPreview({
         type: 'week',
         data: previewPayload,
@@ -1874,6 +1893,8 @@ export function PlanningPage({
         blocks = buildBlocksByTier(training_weeks, String(activeTier));
       }
 
+      // 存草稿（fire-and-forget）
+      saveDraftToApi('full', { blocks, fullPlanData });
       // 显示预览弹窗而非直接保存
       setGeneratedPreview({
         type: 'full',
