@@ -26,6 +26,19 @@ function lsGet<T>(key: string, fallback: T): T {
   }
 }
 
+function lsSet(key: string, val: unknown) {
+  localStorage.setItem('fika_' + key, JSON.stringify(val));
+}
+
+function initDemoData() {
+  if (lsGet('data_initialized', false)) return;
+  lsSet('coaches', [
+    { code: 'COACH001', name: '龙教练', specialties: ['功能性力量', '减脂塑形'], clients: [] },
+    { code: 'COACH002', name: '林教练', specialties: ['运动康复', '体能提升'], clients: [] },
+  ]);
+  lsSet('data_initialized', true);
+}
+
 function persistSession(session: SessionData, remember: boolean) {
   if (remember) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
@@ -54,6 +67,7 @@ export function useAuth() {
 
   // 初始化：拉数据 + 恢复会话
   useEffect(() => {
+    initDemoData();
     (async () => {
       setIsInitializing(true);
       try {
