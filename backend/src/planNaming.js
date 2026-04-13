@@ -124,3 +124,64 @@ export function distributeWeekdays(freq) {
   };
   return templates[Math.max(1, Math.min(Number(freq) || 3, 7))] || templates[3];
 }
+
+/**
+ * 训练日名称构建器
+ * @param {string} weekTheme  - 本周主题
+ * @param {string} dayStyle   - 训练日风格
+ * @param {string} phase      - build | peak | deload
+ * @returns {string}
+ */
+export function buildDayName(weekTheme, dayStyle, phase) {
+  if (phase === 'deload') return `恢复激活 · ${dayStyle}`;
+  if (phase === 'peak')   return `${weekTheme} · ${dayStyle}冲击`;
+  return `${weekTheme} · ${dayStyle}`;
+}
+
+/**
+ * 动态生成整个 Block 的周/日命名
+ * @param {Object} opts
+ * @param {string}   opts.level        - 会员档位
+ * @param {string}   opts.goalKey      - fat_loss | muscle_gain | performance | posture | rehabilitation | cardio
+ * @param {string}   opts.dirKey       - strength | cardio | technique | recovery | balanced
+ * @param {number}   opts.freq         - 每周训练频次
+ * @param {number}   opts.totalWeeks   - 总周数
+ * @returns {{ weeks: Array }}
+ */
+export function generatePlanNames({ level = 'standard', goalKey = 'performance', dirKey = 'balanced', freq = 3, totalWeeks = 8 } = {}) {
+  const themePool    = weekThemes[level]?.[goalKey] || weekThemes.advanced.performance;
+  const dayStylePool = dayStyles[level]?.[dirKey]   || dayStyles[level]?.balanced || dayStyles.advanced.balanced;
+
+  const count       = Math.max(1, Math.min(Number(totalWeeks) || 8, 52));
+  const selectedDays = distributeWeekdays(freq);
+
+  const weeks = [];
+  for (let i = 0; i < count; i++) {
+    const pos   = i % 4;
+    const phase = pos === 3 ? 'deload' : pos === 2 ? 'peak' : 'build';
+
+    const week_theme = themePool[pos] || `第${i + 1}周`;
+
+    // Deload 周减少一天训练
+    const weekDayCount   = phase === 'deload'
+      ? Math.max(2, selectedDays.length - 1)
+      : selectedDays.length;
+    const weekSelectedDays = selectedDays.slice(0, weekDayCount);
+
+    const week_brief = phase === 'deload'
+      ? `第${i + 1}周卸载恢复，训练量降低30%，${week_theme}，动作质量优先，不追求强度`
+      : phase === 'peak'
+      ? `第${i + 1}周峰值冲击，${week_theme}，在前几周积累基础上全力冲击极限`
+      : `第${i + 1}周渐进加载，${week_theme}，循序渐进提升训练负荷和动作质量`;
+
+    const days = weekSelectedDays.map((dayName, di) => {
+      const style = dayStylePool[di % dayStylePool.length] || '综合训练';
+      const name  = buildDayName(week_theme, style, phase);
+      return { day: dayName, name, focus: style };
+    });
+
+    weeks.push({ week_num: i + 1, week_theme, week_brief, intensity_phase: phase, days });
+  }
+
+  return { weeks };
+}

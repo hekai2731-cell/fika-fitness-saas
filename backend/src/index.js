@@ -16,7 +16,7 @@ import sessionsRouter from './routes/sessions.js';
 import financesRouter from './routes/finances.js';
 import adminRouter from './routes/admin.js';
 import { recommendBlock, generateWeekFramework } from './blockPlanner.js';
-import { blockNames, weekThemes, dayStyles, GOAL_KEY_MAP, DIR_KEY_MAP, distributeWeekdays } from './planNaming.js';
+import { blockNames, weekThemes, dayStyles, GOAL_KEY_MAP, DIR_KEY_MAP, distributeWeekdays, generatePlanNames } from './planNaming.js';
 
 const app = express();
 
@@ -755,38 +755,15 @@ app.post('/api/plan/generate-framework', (req, res) => {
     const block_name = blockNames[level]?.[goalKey] || `${level} Block`;
     const block_goal = block_name;
 
-    const themePool    = weekThemes[level]?.[goalKey] || weekThemes.advanced.performance;
-    const dayStylePool = dayStyles[level]?.[dirKey]   || dayStyles[level]?.balanced || dayStyles.advanced.balanced;
+    const freq  = Math.max(1, Math.min(Number(weeklyFreq) || 3, 7));
+    const count = Math.max(1, Math.min(Number(totalWeeks) || 8, 52));
 
-    const freq       = Math.max(1, Math.min(Number(weeklyFreq) || 3, 7));
-    const count      = Math.max(1, Math.min(Number(totalWeeks) || 8, 52));
-    const weekdayList = distributeWeekdays(freq);
+    const { weeks } = generatePlanNames({ level, goalKey, dirKey, freq, totalWeeks: count });
 
-    const weeks = [];
-    for (let i = 0; i < count; i++) {
-      const pos   = i % 4;
-      const phase = pos === 3 ? 'deload' : pos === 2 ? 'peak' : 'build';
-      const week_title = themePool[pos] || `第${i + 1}周`;
+    // 补充 week_title 兼容字段
+    const weeksWithTitle = weeks.map(w => ({ ...w, week_title: w.week_theme }));
 
-      const days = weekdayList.map((dayName, di) => ({
-        day: dayName,
-        name: dayStylePool[di % dayStylePool.length] || '训练日',
-        focus: dayStylePool[di % dayStylePool.length] || '综合训练',
-      }));
-
-      weeks.push({
-        week_num: i + 1,
-        week_title,
-        week_theme: week_title,
-        week_brief: phase === 'deload'
-          ? '本周降量30%，以恢复为主，动作质量优先'
-          : `第${i + 1}周 · ${week_title}`,
-        intensity_phase: phase,
-        days,
-      });
-    }
-
-    res.json({ block_name, block_goal, weeks });
+    res.json({ block_name, block_goal, weeks: weeksWithTitle });
   } catch (err) {
     res.status(500).json({ error: 'generate framework failed', details: String(err) });
   }

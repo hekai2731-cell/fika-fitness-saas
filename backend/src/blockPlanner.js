@@ -77,10 +77,10 @@ export function generateWeekFramework(blockGoal = '', totalWeeks = 8) {
 
     const week_brief =
       phase === 'deload'
-        ? '本周降量30%，以恢复为主，动作质量优先，组间增加30秒'
+        ? `第${i + 1}周卸载恢复，训练量降低30%，${week_theme}，动作质量优先，不追求强度`
         : phase === 'peak'
-        ? '本周强度最高，冲击个人极限，注意充足恢复'
-        : `第${i + 1}周渐进超负荷，在上周基础上提升5-10%` +
+        ? `第${i + 1}周峰值冲击，${week_theme}，在前几周积累基础上全力冲击极限`
+        : `第${i + 1}周渐进加载，${week_theme}，循序渐进提升训练负荷和动作质量` +
           (blockGoal ? `，服务于目标：${blockGoal}` : '');
 
     weeks.push({
