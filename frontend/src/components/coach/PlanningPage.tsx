@@ -2354,14 +2354,14 @@ export function PlanningPage({
               {aiConfirmMode === 'full'
                 ? (blockStep === 'form' ? '新建训练 Block' : `框架预览 · ${blockFramework?.block_name || ''}`)
                 : aiConfirmMode === 'day'
-                  ? '课前状态评估'
+                  ? '今日课程设置'
                   : `${selectedBlock?.title || 'Block'} · Week ${selectedWeek?.week_num || 1}`}
             </div>
             <div style={{ fontSize: 12, color: '#7B8498', marginBottom: 10 }}>
               {aiConfirmMode === 'full'
                 ? (blockStep === 'form' ? '填写目标和参数，点击预览生成框架（不调用 AI）' : '确认后将直接创建 Block 和所有训练周')
                 : aiConfirmMode === 'day'
-                ? `${selectedDay?.day || '周一'} · ${planConfirmForm.selectedTier === 'ultra' ? 'Ultra 高级训练' : planConfirmForm.selectedTier === 'pro' ? 'Pro 进阶训练' : 'Standard 基础训练'}`
+                ? `${selectedDay?.day || '周一'} · ${planConfirmForm.selectedTier === 'ultra' ? '¥458 · 精深课程' : planConfirmForm.selectedTier === 'pro' ? '¥388 · 动力链标准课程' : '¥328 · 基础感知课程'}`
                 : `${(selectedWeek as any)?.week_theme || ((selectedWeek as any)?.intensity_phase === 'deload' ? '卸载恢复' : (selectedWeek as any)?.intensity_phase === 'peak' ? '峰值冲击' : '渐进加载')} · 调整本周训练安排`}
             </div>
 
@@ -2592,140 +2592,7 @@ export function PlanningPage({
             ) : (
               <div style={{ display: 'grid', gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 恢复状态</div>
-                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>上次训练距今多久？身体感觉如何？</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {RECOVERY_OPTIONS.map((opt) => {
-                      const on = planConfirmForm.recoveryStatus === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, recoveryStatus: opt.value }))}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 6px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
-                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 今日状态</div>
-                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>精神、睡眠、压力</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {TODAY_STATUS_OPTIONS.map((opt) => {
-                      const on = planConfirmForm.todayStatus === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, todayStatus: opt.value }))}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 6px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
-                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 今日身体不适区域</div>
-                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>可多选</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                    {DISCOMFORT_OPTIONS.map((area) => {
-                      const on = planConfirmForm.discomfortAreas.includes(area);
-                      return (
-                        <button
-                          key={area}
-                          type="button"
-                          onClick={() => toggleDiscomfortArea(area)}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '7px 11px',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: '#202737',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {area}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>4. 本节课目标偏向</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {(SESSION_GOAL_OPTIONS_MAP[(client as any)?.membershipLevel || 'standard'] || SESSION_GOAL_OPTIONS_MAP.standard).map((opt) => {
-                      const on = planConfirmForm.sessionGoal === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, sessionGoal: opt.value }))}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 8px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
-                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>6. 教练备注（可选）</div>
-                  <textarea
-                    value={planConfirmForm.preSessionNote}
-                    onChange={(e) => setPlanConfirmForm((prev) => ({ ...prev, preSessionNote: e.target.value }))}
-                    placeholder="例如：客户昨晚失眠，注意控制强度..."
-                    style={{
-                      marginTop: 8,
-                      width: '100%',
-                      minHeight: 64,
-                      borderRadius: 12,
-                      border: '1px solid #D9DCE6',
-                      background: '#FFFFFF',
-                      padding: '9px 10px',
-                      fontSize: 13,
-                      color: '#25304A',
-                      outline: 'none',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>7. 确认课程档位</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 确认课程档位</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                     {(() => {
                       const tierAccess: Record<string, string[]> = {
@@ -2812,6 +2679,139 @@ export function PlanningPage({
                       });
                     })()}
                   </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 本节课目标偏向</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
+                    {(SESSION_GOAL_OPTIONS_MAP[(client as any)?.membershipLevel || 'standard'] || SESSION_GOAL_OPTIONS_MAP.standard).map((opt) => {
+                      const on = planConfirmForm.sessionGoal === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, sessionGoal: opt.value }))}
+                          style={{
+                            borderRadius: 12,
+                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF',
+                            padding: '8px 8px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
+                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 恢复状态</div>
+                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>上次训练距今多久？身体感觉如何？</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
+                    {RECOVERY_OPTIONS.map((opt) => {
+                      const on = planConfirmForm.recoveryStatus === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, recoveryStatus: opt.value }))}
+                          style={{
+                            borderRadius: 12,
+                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF',
+                            padding: '8px 6px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
+                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>4. 今日状态</div>
+                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>精神、睡眠、压力</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
+                    {TODAY_STATUS_OPTIONS.map((opt) => {
+                      const on = planConfirmForm.todayStatus === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, todayStatus: opt.value }))}
+                          style={{
+                            borderRadius: 12,
+                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF',
+                            padding: '8px 6px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
+                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>5. 今日身体不适区域</div>
+                  <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>可多选</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                    {DISCOMFORT_OPTIONS.map((area) => {
+                      const on = planConfirmForm.discomfortAreas.includes(area);
+                      return (
+                        <button
+                          key={area}
+                          type="button"
+                          onClick={() => toggleDiscomfortArea(area)}
+                          style={{
+                            borderRadius: 12,
+                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF',
+                            padding: '7px 11px',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: '#202737',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {area}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>6. 教练备注（可选）</div>
+                  <textarea
+                    value={planConfirmForm.preSessionNote}
+                    onChange={(e) => setPlanConfirmForm((prev) => ({ ...prev, preSessionNote: e.target.value }))}
+                    placeholder="例如：客户昨晚失眠，注意控制强度..."
+                    style={{
+                      marginTop: 8,
+                      width: '100%',
+                      minHeight: 64,
+                      borderRadius: 12,
+                      border: '1px solid #D9DCE6',
+                      background: '#FFFFFF',
+                      padding: '9px 10px',
+                      fontSize: 13,
+                      color: '#25304A',
+                      outline: 'none',
+                    }}
+                  />
                 </div>
               </div>
             )}
