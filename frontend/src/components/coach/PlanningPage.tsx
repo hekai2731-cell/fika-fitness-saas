@@ -1584,7 +1584,7 @@ export function PlanningPage({
   // ── AI 生成今日计划 ───────────────────────────────────────────
   const onGenerateDayPlan = async (forcedTier?: 'standard' | 'pro' | 'ultra') => {
     if (!client || !selectedDay || !selectedWeek || !selectedBlock) return;
-    const clientIdentifier = String(client.id || (client as any).roadCode || '');
+    const clientId = String(client?.id || (client as any)?.roadCode || 'unknown');
     setLoadingDay(true);
     startAiSteps('day');
     setError(null);
@@ -1599,7 +1599,7 @@ export function PlanningPage({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          clientId: clientIdentifier,
+          clientId: clientId,
           clientName: client.name,
           gender: client.gender,
           age: client.age,
