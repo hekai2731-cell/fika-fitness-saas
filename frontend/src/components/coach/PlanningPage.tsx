@@ -1027,7 +1027,7 @@ export function PlanningPage({
   // ── AI 草稿存储（fire-and-forget，失败不影响主流程）────────────
   const saveDraftToApi = (planType: string, result: any, inputPayload?: any) => {
     try {
-      const clientId = String((client as any)?.roadCode || client?.id || 'unknown');
+      const clientId = String(client?.id || (client as any)?.roadCode || 'unknown');
       const coachCode = String((client as any)?.coachCode || '');
       void fetch(apiUrl('/api/ai/drafts'), {
         method: 'POST',
@@ -1125,14 +1125,13 @@ export function PlanningPage({
   // ── 拉取 Block 推荐（不调 AI，纯规则）────────────────────────────
   const fetchBlockRecommendation = async () => {
     if (!client || blockRecLoading) return;
-    const clientId = String((client as any).roadCode || client.id || 'unknown');
     setBlockRecLoading(true);
     setError(null);
     try {
       const rec = await fetchJsonOrThrow(apiUrl('/api/block/recommend'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId }),
+        body: JSON.stringify({ clientId: String(client.id || (client as any).roadCode || '') }),
       });
       setBlockRec(rec);
       setBlockRecForm({ title: String(rec.block_title || ''), goal: String(rec.block_goal || ''), weeks: Number(rec.weeks || 8) });
