@@ -717,6 +717,7 @@ export function PlanningPage({
   const pressTimerRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [aiConfirmMode, setAiConfirmMode] = useState<AiConfirmMode | null>(null);
+  const [dayPlanStep, setDayPlanStep] = useState<'tier' | 'detail'>('tier');
   const [planConfirmForm, setPlanConfirmForm] = useState<PlanConfirmForm>(defaultPlanConfirmForm);
   const [aiSettings, setAiSettings] = useState<AiSettings>(() => readAiSettings());
 
@@ -1221,6 +1222,9 @@ export function PlanningPage({
       setBlockWeeks(8);
       setBlockNote('');
       setBlockFramework(null);
+    }
+    if (mode === 'day') {
+      setDayPlanStep('tier');
     }
     setAiConfirmMode(mode);
   };
@@ -2361,7 +2365,10 @@ export function PlanningPage({
               {aiConfirmMode === 'full'
                 ? (blockStep === 'form' ? '填写目标和参数，点击预览生成框架（不调用 AI）' : '确认后将直接创建 Block 和所有训练周')
                 : aiConfirmMode === 'day'
-                ? `${selectedDay?.day || '周一'} · ${planConfirmForm.selectedTier === 'ultra' ? '¥458 · 精深课程' : planConfirmForm.selectedTier === 'pro' ? '¥388 · 动力链标准课程' : '¥328 · 基础感知课程'}`
+                ? (dayPlanStep === 'tier'
+                    ? `${selectedDay?.day || '周一'} · 第一步：选择今日课程档位`
+                    : `${selectedDay?.day || '周一'} · ${planConfirmForm.selectedTier === 'ultra' ? '¥458 · 精深课程' : planConfirmForm.selectedTier === 'pro' ? '¥388 · 动力链标准课程' : '¥328 · 基础感知课程'}`)
+
                 : `${(selectedWeek as any)?.week_theme || ((selectedWeek as any)?.intensity_phase === 'deload' ? '卸载恢复' : (selectedWeek as any)?.intensity_phase === 'peak' ? '峰值冲击' : '渐进加载')} · 调整本周训练安排`}
             </div>
 
@@ -2589,117 +2596,129 @@ export function PlanningPage({
                   </div>
                 )}
               </div>
+            ) : dayPlanStep === 'tier' ? (
+              /* ── Step 1: 选择档位 ── */
+              <div style={{ display: 'grid', gap: 12 }}>
+                {(() => {
+                  const tierAccess: Record<string, string[]> = {
+                    standard:     ['standard'],
+                    advanced:     ['standard', 'pro'],
+                    professional: ['standard', 'pro', 'ultra'],
+                    elite:        ['standard', 'pro', 'ultra'],
+                  };
+                  const memberLevel = String((client as any)?.membershipLevel || 'standard');
+                  const allowedTiers = tierAccess[memberLevel] || ['standard'];
+                  return [
+                    {
+                      key: 'standard' as const,
+                      price: '¥328',
+                      label: '基础感知课程',
+                      desc: '3模块 · 基础感知 · 60min',
+                      border: 'rgba(102,186,128,.46)',
+                      bg: 'linear-gradient(145deg, rgba(214,246,223,.96), rgba(184,232,200,.9))',
+                      color: 'rgba(26,88,49,.94)',
+                    },
+                    {
+                      key: 'pro' as const,
+                      price: '¥388',
+                      label: '动力链标准课程',
+                      desc: '4模块 · 动力链 · 60min',
+                      border: 'rgba(154,127,232,.46)',
+                      bg: 'linear-gradient(145deg, rgba(226,216,255,.96), rgba(204,188,249,.9))',
+                      color: 'rgba(74,51,146,.94)',
+                    },
+                    {
+                      key: 'ultra' as const,
+                      price: '¥458',
+                      label: '精深课程',
+                      desc: '5模块 · 筋膜链 · 70min',
+                      border: 'rgba(236,163,89,.5)',
+                      bg: 'linear-gradient(145deg, rgba(255,226,193,.96), rgba(248,199,142,.9))',
+                      color: 'rgba(136,78,24,.94)',
+                    },
+                  ].map((tier) => {
+                    const active = planConfirmForm.selectedTier === tier.key;
+                    const locked = !allowedTiers.includes(tier.key);
+                    return (
+                      <button
+                        key={tier.key}
+                        type="button"
+                        className={locked ? 'ultra-lock-card is-locked' : 'ultra-lock-card'}
+                        disabled={locked}
+                        onClick={() => !locked && setPlanConfirmForm((prev) => ({ ...prev, selectedTier: tier.key }))}
+                        style={{
+                          border: active ? '2px solid rgba(81,98,238,.82)' : `1px solid ${locked ? 'rgba(200,203,214,.5)' : tier.border}`,
+                          borderRadius: 10,
+                          padding: '10px 12px',
+                          textAlign: 'left',
+                          background: locked ? 'linear-gradient(145deg, rgba(239,239,242,.94), rgba(220,223,232,.9))' : tier.bg,
+                          color: locked ? 'rgba(150,156,174,.9)' : tier.color,
+                          cursor: locked ? 'not-allowed' : 'pointer',
+                          opacity: locked ? 0.78 : 1,
+                          position: 'relative',
+                          overflow: 'hidden',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '.04em' }}>
+                            {tier.price} · {tier.label}
+                          </div>
+                          <div style={{ fontSize: 11, marginTop: 3, opacity: .84 }}>{tier.desc}</div>
+                        </div>
+                        {active && (
+                          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(81,98,238,.9)' }}>✓ 已选</div>
+                        )}
+                        {locked && (
+                          <div style={{
+                            fontSize: 10, fontWeight: 700, borderRadius: 999,
+                            padding: '2px 7px', whiteSpace: 'nowrap',
+                            color: 'rgba(70,79,104,.9)',
+                            background: 'rgba(255,255,255,.7)',
+                            border: '1px solid rgba(164,173,198,.6)',
+                          }}>🔒 需升级会员</div>
+                        )}
+                      </button>
+                    );
+                  });
+                })()}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4, gap: 8 }}>
+                  <button type="button" onClick={() => setAiConfirmMode(null)}
+                    style={{ height: 32, borderRadius: 8, border: '1px solid rgba(167,178,211,.58)',
+                      background: 'rgba(242,246,255,.86)', color: 'rgba(56,66,96,.88)',
+                      padding: '0 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                    取消
+                  </button>
+                  <button type="button"
+                    onClick={() => {
+                      if (!planConfirmForm.selectedTier) {
+                        setError('请先选择课程档位');
+                        return;
+                      }
+                      setDayPlanStep('detail');
+                    }}
+                    style={{ height: 32, borderRadius: 8, border: 'none',
+                      background: 'linear-gradient(120deg, rgba(124,132,244,.92), rgba(112,121,236,.88))',
+                      color: '#fff', padding: '0 16px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                    下一步 →
+                  </button>
+                </div>
+              </div>
             ) : (
+              /* ── Step 2: 填写详情 ── */
               <div style={{ display: 'grid', gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 确认课程档位</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                    {(() => {
-                      const tierAccess: Record<string, string[]> = {
-                        standard:     ['standard'],
-                        advanced:     ['standard', 'pro'],
-                        professional: ['standard', 'pro', 'ultra'],
-                        elite:        ['standard', 'pro', 'ultra'],
-                      };
-                      const memberLevel = String((client as any)?.membershipLevel || 'standard');
-                      const allowedTiers = tierAccess[memberLevel] || ['standard'];
-                      return [
-                        {
-                          key: 'standard' as const,
-                          price: '¥328',
-                          label: '基础',
-                          desc: '3模块 · 基础感知 · 60min',
-                          border: 'rgba(102,186,128,.46)',
-                          bg: 'linear-gradient(145deg, rgba(214,246,223,.96), rgba(184,232,200,.9))',
-                          color: 'rgba(26,88,49,.94)',
-                        },
-                        {
-                          key: 'pro' as const,
-                          price: '¥388',
-                          label: '标准',
-                          desc: '4模块 · 动力链 · 60min',
-                          border: 'rgba(154,127,232,.46)',
-                          bg: 'linear-gradient(145deg, rgba(226,216,255,.96), rgba(204,188,249,.9))',
-                          color: 'rgba(74,51,146,.94)',
-                        },
-                        {
-                          key: 'ultra' as const,
-                          price: '¥458',
-                          label: '精深',
-                          desc: '5模块 · 筋膜链 · 70min',
-                          border: 'rgba(236,163,89,.5)',
-                          bg: 'linear-gradient(145deg, rgba(255,226,193,.96), rgba(248,199,142,.9))',
-                          color: 'rgba(136,78,24,.94)',
-                        },
-                      ].map((tier) => {
-                        const active = planConfirmForm.selectedTier === tier.key;
-                        const locked = !allowedTiers.includes(tier.key);
-                        return (
-                          <button
-                            key={tier.key}
-                            type="button"
-                            className={locked ? 'ultra-lock-card is-locked' : 'ultra-lock-card'}
-                            disabled={locked}
-                            onClick={() => !locked && setPlanConfirmForm((prev) => ({ ...prev, selectedTier: tier.key }))}
-                            style={{
-                              border: active ? '2px solid rgba(81,98,238,.82)' : `1px solid ${locked ? 'rgba(200,203,214,.5)' : tier.border}`,
-                              borderRadius: 10,
-                              padding: '8px 10px',
-                              textAlign: 'left',
-                              background: locked ? 'linear-gradient(145deg, rgba(239,239,242,.94), rgba(220,223,232,.9))' : tier.bg,
-                              color: locked ? 'rgba(150,156,174,.9)' : tier.color,
-                              cursor: locked ? 'not-allowed' : 'pointer',
-                              opacity: locked ? 0.78 : 1,
-                              position: 'relative',
-                              overflow: 'hidden',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '.04em' }}>
-                                {tier.price} · {tier.label}
-                              </div>
-                              <div style={{ fontSize: 10, marginTop: 2, opacity: .84 }}>{tier.desc}</div>
-                            </div>
-                            {locked && (
-                              <div style={{
-                                fontSize: 10, fontWeight: 700, borderRadius: 999,
-                                padding: '2px 7px', whiteSpace: 'nowrap',
-                                color: 'rgba(70,79,104,.9)',
-                                background: 'rgba(255,255,255,.7)',
-                                border: '1px solid rgba(164,173,198,.6)',
-                              }}>
-                                🔒 需升级会员
-                              </div>
-                            )}
-                          </button>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 本节课目标偏向</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 本节课目标偏向</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
                     {(SESSION_GOAL_OPTIONS_MAP[(client as any)?.membershipLevel || 'standard'] || SESSION_GOAL_OPTIONS_MAP.standard).map((opt) => {
                       const on = planConfirmForm.sessionGoal === opt.value;
                       return (
-                        <button
-                          key={opt.value}
-                          type="button"
+                        <button key={opt.value} type="button"
                           onClick={() => setPlanConfirmForm((prev) => ({ ...prev, sessionGoal: opt.value }))}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 8px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
+                          style={{ borderRadius: 12, border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF', padding: '8px 8px', textAlign: 'center', cursor: 'pointer' }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
                           <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
                         </button>
@@ -2709,25 +2728,16 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 恢复状态</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 恢复状态</div>
                   <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>上次训练距今多久？身体感觉如何？</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
                     {RECOVERY_OPTIONS.map((opt) => {
                       const on = planConfirmForm.recoveryStatus === opt.value;
                       return (
-                        <button
-                          key={opt.value}
-                          type="button"
+                        <button key={opt.value} type="button"
                           onClick={() => setPlanConfirmForm((prev) => ({ ...prev, recoveryStatus: opt.value }))}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 6px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
+                          style={{ borderRadius: 12, border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF', padding: '8px 6px', textAlign: 'center', cursor: 'pointer' }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
                           <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
                         </button>
@@ -2737,25 +2747,16 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>4. 今日状态</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 今日状态</div>
                   <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>精神、睡眠、压力</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
                     {TODAY_STATUS_OPTIONS.map((opt) => {
                       const on = planConfirmForm.todayStatus === opt.value;
                       return (
-                        <button
-                          key={opt.value}
-                          type="button"
+                        <button key={opt.value} type="button"
                           onClick={() => setPlanConfirmForm((prev) => ({ ...prev, todayStatus: opt.value }))}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 6px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
+                          style={{ borderRadius: 12, border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF', padding: '8px 6px', textAlign: 'center', cursor: 'pointer' }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
                           <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
                         </button>
@@ -2765,27 +2766,16 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>5. 今日身体不适区域</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>4. 今日身体不适区域</div>
                   <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>可多选</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                     {DISCOMFORT_OPTIONS.map((area) => {
                       const on = planConfirmForm.discomfortAreas.includes(area);
                       return (
-                        <button
-                          key={area}
-                          type="button"
-                          onClick={() => toggleDiscomfortArea(area)}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '7px 11px',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: '#202737',
-                            cursor: 'pointer',
-                          }}
-                        >
+                        <button key={area} type="button" onClick={() => toggleDiscomfortArea(area)}
+                          style={{ borderRadius: 12, border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: on ? '#F4F5FF' : '#FFFFFF', padding: '7px 11px',
+                            fontSize: 13, fontWeight: 600, color: '#202737', cursor: 'pointer' }}>
                           {area}
                         </button>
                       );
@@ -2794,27 +2784,33 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>6. 教练备注（可选）</div>
-                  <textarea
-                    value={planConfirmForm.preSessionNote}
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>5. 教练备注（可选）</div>
+                  <textarea value={planConfirmForm.preSessionNote}
                     onChange={(e) => setPlanConfirmForm((prev) => ({ ...prev, preSessionNote: e.target.value }))}
                     placeholder="例如：客户昨晚失眠，注意控制强度..."
-                    style={{
-                      marginTop: 8,
-                      width: '100%',
-                      minHeight: 64,
-                      borderRadius: 12,
-                      border: '1px solid #D9DCE6',
-                      background: '#FFFFFF',
-                      padding: '9px 10px',
-                      fontSize: 13,
-                      color: '#25304A',
-                      outline: 'none',
-                    }}
-                  />
+                    style={{ marginTop: 8, width: '100%', minHeight: 64, borderRadius: 12,
+                      border: '1px solid #D9DCE6', background: '#FFFFFF', padding: '9px 10px',
+                      fontSize: 13, color: '#25304A', outline: 'none' }} />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                  <button type="button" onClick={() => setDayPlanStep('tier')}
+                    style={{ height: 32, borderRadius: 8, border: '1px solid rgba(167,178,211,.58)',
+                      background: 'rgba(242,246,255,.86)', color: 'rgba(56,66,96,.88)',
+                      padding: '0 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                    ← 返回
+                  </button>
+                  <button type="button" onClick={handleConfirmGenerate}
+                    style={{ height: 32, borderRadius: 8, border: 'none',
+                      background: 'linear-gradient(120deg, rgba(124,132,244,.92), rgba(112,121,236,.88))',
+                      color: '#fff', padding: '0 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                    生成单次训练计划
+                  </button>
                 </div>
               </div>
             )}
+            {/* full/week 模式的底部按钮 */}
+            {aiConfirmMode !== 'day' && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
               <button
                 type="button"
@@ -2834,8 +2830,7 @@ export function PlanningPage({
               >
                 {aiConfirmMode === 'full'
                   ? (blockFrameworkLoading ? '生成中...' : blockStep === 'form' ? '预览框架' : '确认创建')
-                  : aiConfirmMode === 'week' ? '确认应用'
-                  : '生成单次训练计划'}
+                  : '确认应用'}
               </button>
               <button
                 type="button"
@@ -2861,6 +2856,7 @@ export function PlanningPage({
                 {aiConfirmMode === 'full' && blockStep === 'preview' ? '返回修改' : '取消'}
               </button>
             </div>
+            )}
           </div>
         </div>
       )}
