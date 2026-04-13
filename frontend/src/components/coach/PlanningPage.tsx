@@ -2797,83 +2797,90 @@ export function PlanningPage({
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>7. 确认课程档位</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                    {[
-                      {
-                        key: 'standard' as const,
-                        title: 'STANDARD',
-                        desc: '基础稳定推进',
-                        border: 'rgba(102,186,128,.46)',
-                        bg: 'linear-gradient(145deg, rgba(214,246,223,.96), rgba(184,232,200,.9))',
-                        color: 'rgba(26,88,49,.94)',
-                      },
-                      {
-                        key: 'pro' as const,
-                        title: 'PRO',
-                        desc: '进阶强度与密度',
-                        border: 'rgba(154,127,232,.46)',
-                        bg: 'linear-gradient(145deg, rgba(226,216,255,.96), rgba(204,188,249,.9))',
-                        color: 'rgba(74,51,146,.94)',
-                      },
-                      {
-                        key: 'ultra' as const,
-                        title: 'ULTRA',
-                        desc: aiSettings.training_ultra === false ? '待解锁（管理端开启）' : '高阶爆发与挑战',
-                        border: 'rgba(236,163,89,.5)',
-                        bg: aiSettings.training_ultra === false
-                          ? 'linear-gradient(145deg, rgba(239,239,242,.94), rgba(220,223,232,.9))'
-                          : 'linear-gradient(145deg, rgba(255,226,193,.96), rgba(248,199,142,.9))',
-                        color: aiSettings.training_ultra === false ? 'rgba(96,103,123,.9)' : 'rgba(136,78,24,.94)',
-                        locked: aiSettings.training_ultra === false,
-                      },
-                    ].map((tier) => {
-                      const active = planConfirmForm.selectedTier === tier.key;
-                      const locked = Boolean((tier as any).locked);
-                      return (
-                        <button
-                          key={tier.key}
-                          type="button"
-                          className={locked ? 'ultra-lock-card is-locked' : 'ultra-lock-card'}
-                          disabled={locked}
-                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, selectedTier: tier.key }))}
-                          style={{
-                            border: active ? '2px solid rgba(81,98,238,.82)' : `1px solid ${tier.border}`,
-                            borderRadius: 10,
-                            padding: '8px 8px',
-                            textAlign: 'left',
-                            background: tier.bg,
-                            color: tier.color,
-                            cursor: locked ? 'not-allowed' : 'pointer',
-                            opacity: locked ? 0.82 : 1,
-                            position: 'relative',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          {locked && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                top: 6,
-                                right: 6,
-                                fontSize: 10,
-                                fontWeight: 800,
-                                letterSpacing: '.08em',
-                                borderRadius: 999,
-                                padding: '2px 6px',
-                                color: 'rgba(70,79,104,.95)',
-                                background: 'rgba(255,255,255,.72)',
-                                border: '1px solid rgba(164,173,198,.72)',
-                              }}
-                            >
-                              🔒 LOCKED
+                    {(() => {
+                      const tierAccess: Record<string, string[]> = {
+                        standard:     ['standard'],
+                        advanced:     ['standard', 'pro'],
+                        professional: ['standard', 'pro', 'ultra'],
+                        elite:        ['standard', 'pro', 'ultra'],
+                      };
+                      const memberLevel = String((client as any)?.membershipLevel || 'standard');
+                      const allowedTiers = tierAccess[memberLevel] || ['standard'];
+                      return [
+                        {
+                          key: 'standard' as const,
+                          price: '¥328',
+                          label: '基础',
+                          desc: '3模块 · 基础感知 · 60min',
+                          border: 'rgba(102,186,128,.46)',
+                          bg: 'linear-gradient(145deg, rgba(214,246,223,.96), rgba(184,232,200,.9))',
+                          color: 'rgba(26,88,49,.94)',
+                        },
+                        {
+                          key: 'pro' as const,
+                          price: '¥388',
+                          label: '标准',
+                          desc: '4模块 · 动力链 · 60min',
+                          border: 'rgba(154,127,232,.46)',
+                          bg: 'linear-gradient(145deg, rgba(226,216,255,.96), rgba(204,188,249,.9))',
+                          color: 'rgba(74,51,146,.94)',
+                        },
+                        {
+                          key: 'ultra' as const,
+                          price: '¥458',
+                          label: '精深',
+                          desc: '5模块 · 筋膜链 · 70min',
+                          border: 'rgba(236,163,89,.5)',
+                          bg: 'linear-gradient(145deg, rgba(255,226,193,.96), rgba(248,199,142,.9))',
+                          color: 'rgba(136,78,24,.94)',
+                        },
+                      ].map((tier) => {
+                        const active = planConfirmForm.selectedTier === tier.key;
+                        const locked = !allowedTiers.includes(tier.key);
+                        return (
+                          <button
+                            key={tier.key}
+                            type="button"
+                            className={locked ? 'ultra-lock-card is-locked' : 'ultra-lock-card'}
+                            disabled={locked}
+                            onClick={() => !locked && setPlanConfirmForm((prev) => ({ ...prev, selectedTier: tier.key }))}
+                            style={{
+                              border: active ? '2px solid rgba(81,98,238,.82)' : `1px solid ${locked ? 'rgba(200,203,214,.5)' : tier.border}`,
+                              borderRadius: 10,
+                              padding: '8px 10px',
+                              textAlign: 'left',
+                              background: locked ? 'linear-gradient(145deg, rgba(239,239,242,.94), rgba(220,223,232,.9))' : tier.bg,
+                              color: locked ? 'rgba(150,156,174,.9)' : tier.color,
+                              cursor: locked ? 'not-allowed' : 'pointer',
+                              opacity: locked ? 0.78 : 1,
+                              position: 'relative',
+                              overflow: 'hidden',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '.04em' }}>
+                                {tier.price} · {tier.label}
+                              </div>
+                              <div style={{ fontSize: 10, marginTop: 2, opacity: .84 }}>{tier.desc}</div>
                             </div>
-                          )}
-                          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em' }}>
-                            {tier.title}
-                          </div>
-                          <div style={{ fontSize: 10, marginTop: 3, opacity: .84 }}>{tier.desc}</div>
-                        </button>
-                      );
-                    })}
+                            {locked && (
+                              <div style={{
+                                fontSize: 10, fontWeight: 700, borderRadius: 999,
+                                padding: '2px 7px', whiteSpace: 'nowrap',
+                                color: 'rgba(70,79,104,.9)',
+                                background: 'rgba(255,255,255,.7)',
+                                border: '1px solid rgba(164,173,198,.6)',
+                              }}>
+                                🔒 需升级会员
+                              </div>
+                            )}
+                          </button>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
               </div>
