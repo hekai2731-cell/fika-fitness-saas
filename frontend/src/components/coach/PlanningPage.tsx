@@ -1958,8 +1958,8 @@ export function PlanningPage({
               tabIndex={0}
             >
               <div className="phase-mini">BLOCK {bi + 1}</div>
-              <div className="phase-name">{b.title}</div>
-              <div className="phase-meta">{(b.training_weeks || []).length} Weeks</div>
+              <div className="phase-name">{b.title || `Block ${bi + 1}`}</div>
+              <div className="phase-meta">{(b as any).block_goal || (b as any).goal || '综合体能提升'}</div>
             </div>
           ))}
           
@@ -2035,8 +2035,12 @@ export function PlanningPage({
                     onTouchEnd={cancelLongPress}
                     onContextMenu={(e) => e.preventDefault()}
                   >
-                    <div className="wt">Week {w.week_num}</div>
-                    <div style={{ marginTop: 4, fontSize: 12 }}>{(w.days || []).map(d => d.day).join(' · ')}</div>
+                    <div className="wt">{(w as any).week_title || `Week ${w.week_num}`}</div>
+                    <div style={{ marginTop: 4, fontSize: 12 }}>
+                      {(w as any).week_theme
+                        ? String((w as any).week_theme).slice(0, 12)
+                        : (w.days || []).map(d => d.day).join(' · ') || '暂无训练日'}
+                    </div>
                   </button>
                 ))
                 )}
@@ -2275,7 +2279,7 @@ export function PlanningPage({
                   )}
 
                   {/* 今日训练重点 */}
-                  {selectedWeek && (selectedWeek as any).week_brief && (
+                  {selectedWeek && (
                     <div style={{ marginBottom: 6, color: 'var(--s600)' }}>
                       <div style={{ marginBottom: 4, fontWeight: 600, color: 'var(--s700)' }}>
                         🎯 今日训练重点
@@ -2289,10 +2293,14 @@ export function PlanningPage({
                       }}>
                         {(() => {
                           const brief = (selectedWeek as any).week_brief;
-                          if (typeof brief === 'object' && brief !== null) {
-                            return Object.values(brief).map((v: any) => typeof v === 'string' ? v : (v?.brief || v?.focus || '')).filter(Boolean).join(' · ');
+                          if (!brief) {
+                            const phase = (selectedWeek as any).intensity_phase;
+                            return phase === 'deload' ? '卸载恢复' : phase === 'peak' ? '峰值冲击' : '渐进加载';
                           }
-                          return String(brief || '');
+                          if (typeof brief === 'object' && brief !== null) {
+                            return Object.values(brief).map((v: any) => typeof v === 'string' ? v : (v?.brief || v?.focus || '')).filter(Boolean).join(' · ') || '本周重点聚焦动作质量与强度推进，保持恢复节奏。';
+                          }
+                          return String(brief);
                         })()}
                       </div>
                     </div>
@@ -2416,7 +2424,7 @@ export function PlanningPage({
                 ? (blockStep === 'form' ? '填写目标和参数，点击预览生成框架（不调用 AI）' : '确认后将直接创建 Block 和所有训练周')
                 : aiConfirmMode === 'day'
                 ? `${selectedDay?.day || '周一'} · ${planConfirmForm.selectedTier === 'ultra' ? 'Ultra 高级训练' : planConfirmForm.selectedTier === 'pro' ? 'Pro 进阶训练' : 'Standard 基础训练'}`
-                : `${(selectedWeek as any)?.week_theme || ''} · 调整本周训练安排`}
+                : `${(selectedWeek as any)?.week_theme || ((selectedWeek as any)?.intensity_phase === 'deload' ? '卸载恢复' : (selectedWeek as any)?.intensity_phase === 'peak' ? '峰值冲击' : '渐进加载')} · 调整本周训练安排`}
             </div>
 
             {aiConfirmMode === 'full' ? (
@@ -2522,7 +2530,7 @@ export function PlanningPage({
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                           <span style={{ fontSize: 11, fontWeight: 700, color: '#374151' }}>Week {w.week_num}</span>
-                          <span style={{ fontSize: 11, color: '#6B7280' }}>{w.week_title || w.week_theme}</span>
+                          <span style={{ fontSize: 11, color: '#6B7280' }}>{w.week_title || w.week_theme || `Week ${w.week_num}`}</span>
                           <span style={{
                             fontSize: 10, fontWeight: 700, borderRadius: 4, padding: '1px 6px',
                             background: w.intensity_phase === 'deload' ? '#E0E2EA' : w.intensity_phase === 'peak' ? '#FDE9C8' : '#DBEAFE',
