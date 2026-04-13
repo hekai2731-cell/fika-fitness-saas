@@ -1641,7 +1641,7 @@ export function PlanningPage({
   // ── AI 生成今日计划 ───────────────────────────────────────────
   const onGenerateDayPlan = async (forcedTier?: 'standard' | 'pro' | 'ultra') => {
     if (!client || !selectedDay || !selectedWeek || !selectedBlock) return;
-    const clientIdentifier = String((client as any).roadCode || client.id || 'unknown');
+    const clientIdentifier = String(client.id || (client as any).roadCode || '');
     setLoadingDay(true);
     startAiSteps('day');
     setError(null);
@@ -1661,7 +1661,7 @@ export function PlanningPage({
           gender: client.gender,
           age: client.age,
           height: client.height,
-          weight: client.weight,
+          weight: Number(client.weight || (client as any).bodyWeight || 65),
           surveyData: (client as any).survey_data,
           weeklyData: client.weeklyData ?? (client as any).weekly_data,
           dayName: String((selectedDay as any)?.name || selectedDay?.day || ''),
@@ -1670,7 +1670,7 @@ export function PlanningPage({
           membershipLevel: String((client as any).membershipLevel || 'standard'),
           statusScore: computeStatusScore(planConfirmForm.recoveryStatus, planConfirmForm.todayStatus),
           intensityPhase: String((selectedWeek as any)?.intensity_phase || 'build'),
-          sessionTier: forcedTier || (tierOverride as any) || client.tier || 'standard',
+          sessionTier: forcedTier || String(tierOverride || client.tier || 'standard'),
           lastSessionRpe: (client.sessions || []).slice(-1)[0]?.rpe || undefined,
           blockTitle: selectedBlock.title,
           weekLabel: `Week ${selectedWeek.week_num}`,
