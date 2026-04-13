@@ -78,7 +78,6 @@ interface PlanConfirmForm {
   todayStatus: string;
   discomfortAreas: string[];
   sessionGoal: string;
-  sessionDurationMinutes: string;
   preSessionNote: string;
   // 周规划——训练日选择（不调 AI）
   weekSelectedDays: string[];           // e.g. ['周一', '周三', '周五']
@@ -101,18 +100,31 @@ const TODAY_STATUS_OPTIONS: Array<{ value: string; label: string; desc: string }
 
 const DISCOMFORT_OPTIONS = ['无不适', '腰椎', '膝关节', '肩关节', '其他'] as const;
 
-const SESSION_GOAL_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
-  { value: 'technique', label: '技术打磨', desc: '注重动作质量和控制' },
-  { value: 'strength', label: '力量积累', desc: '渐进超负荷为主' },
-  { value: 'power', label: '爆发冲刺', desc: '高强度速度训练' },
-  { value: 'recovery', label: '恢复激活', desc: '低强度恢复为主' },
-];
-
-const SESSION_DURATION_OPTIONS: Array<{ value: string; label: string; desc: string }> = [
-  { value: '50', label: '50分钟', desc: '精简高效' },
-  { value: '60', label: '60分钟', desc: '标准课时' },
-  { value: '70', label: '70分钟', desc: '扩展课时' },
-];
+const SESSION_GOAL_OPTIONS_MAP: Record<string, Array<{ value: string; label: string; desc: string }>> = {
+  standard: [
+    { value: 'technique', label: '技术打磨', desc: '注重动作质量和控制' },
+    { value: 'strength',  label: '力量积累', desc: '渐进超负荷为主' },
+    { value: 'recovery',  label: '恢复激活', desc: '低强度恢复为主' },
+  ],
+  advanced: [
+    { value: 'technique', label: '动作强化', desc: '动作模式巩固与强化' },
+    { value: 'strength',  label: '力量渐进', desc: '渐进超负荷为主' },
+    { value: 'power',     label: '动力链激活', desc: '动力链整合训练' },
+    { value: 'recovery',  label: '恢复激活', desc: '低强度恢复为主' },
+  ],
+  professional: [
+    { value: 'strength',  label: '动力链主训', desc: 'X-Sling功能链训练' },
+    { value: 'power',     label: '爆发力专项', desc: '高功率输出训练' },
+    { value: 'technique', label: '功能整合', desc: '多平面功能动作' },
+    { value: 'recovery',  label: '恢复激活', desc: '低强度恢复为主' },
+  ],
+  elite: [
+    { value: 'power',     label: '神经激活', desc: '神经系统最大激活' },
+    { value: 'strength',  label: '最大力量', desc: '极限重量冲击' },
+    { value: 'technique', label: 'SSC爆发', desc: '弹性势能专项训练' },
+    { value: 'recovery',  label: '恢复激活', desc: '神经系统卸载恢复' },
+  ],
+};
 
 const defaultPlanConfirmForm: PlanConfirmForm = {
   clientNeeds: '',
@@ -127,7 +139,6 @@ const defaultPlanConfirmForm: PlanConfirmForm = {
   todayStatus: '正常',
   discomfortAreas: ['无不适'],
   sessionGoal: 'strength',
-  sessionDurationMinutes: '60',
   preSessionNote: '',
   weekSelectedDays: ['周一', '周三', '周五'],
   weekDayFocus: {},
@@ -1317,7 +1328,6 @@ export function PlanningPage({
     clientNeeds: planConfirmForm.weekNote.trim() || planConfirmForm.clientNeeds.trim(),
     priorityGoals: planConfirmForm.priorityGoals.length ? planConfirmForm.priorityGoals : planConfirmForm.weekFocusAreas,
     weeklyFrequency: planConfirmForm.weeklyFrequency,
-    sessionDurationMinutes: Number(planConfirmForm.sessionDurationMinutes || 60),
     coachAnalysis: [
       planConfirmForm.coachAnalysis.trim(),
       planConfirmForm.weekDirection ? `周训练方向：${planConfirmForm.weekDirection}` : '',
@@ -1334,7 +1344,6 @@ export function PlanningPage({
       todayStatus: planConfirmForm.todayStatus,
       discomfortAreas: planConfirmForm.discomfortAreas,
       sessionGoal: planConfirmForm.sessionGoal,
-      sessionDurationMinutes: Number(planConfirmForm.sessionDurationMinutes || 60),
       coachNote: planConfirmForm.preSessionNote.trim(),
     },
   });
@@ -1684,6 +1693,7 @@ export function PlanningPage({
           blockGoal:  String((selectedBlock as any)?.block_goal || (selectedBlock as any)?.goal || ''),
           weekTheme:  String((selectedWeek as any)?.week_theme || ''),
           weekBrief:  String((selectedWeek as any)?.week_brief || ''),
+          sessionGoal: planConfirmForm.sessionGoal,
         }),
       });
 
@@ -2723,7 +2733,7 @@ export function PlanningPage({
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>4. 本节课目标偏向</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {SESSION_GOAL_OPTIONS.map((opt) => {
+                    {(SESSION_GOAL_OPTIONS_MAP[(client as any)?.membershipLevel || 'standard'] || SESSION_GOAL_OPTIONS_MAP.standard).map((opt) => {
                       const on = planConfirmForm.sessionGoal === opt.value;
                       return (
                         <button
@@ -2735,33 +2745,6 @@ export function PlanningPage({
                             border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
                             background: on ? '#F4F5FF' : '#FFFFFF',
                             padding: '8px 8px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
-                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>5. 可用时长</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {SESSION_DURATION_OPTIONS.map((opt) => {
-                      const on = planConfirmForm.sessionDurationMinutes === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, sessionDurationMinutes: opt.value }))}
-                          style={{
-                            borderRadius: 12,
-                            border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF',
-                            padding: '8px 6px',
                             textAlign: 'center',
                             cursor: 'pointer',
                           }}
