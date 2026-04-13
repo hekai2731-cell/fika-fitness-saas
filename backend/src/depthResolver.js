@@ -15,12 +15,15 @@ export function resolveDepthParams({ membershipLevel = 'standard', tier = 'stand
   // ── 限制一：Deload 强制覆盖（最高优先级）─────────────────────────
   if (intensityPhase === 'deload') {
     return {
-      moduleCount: 3,
+      moduleCount: 2,
       exPerMod: 2,
       supersetMax: 0,
       noteDepth: 'basic',
-      duration: '55-65min',
-      forceReason: 'Deload周强制降量，固定3模块2动作，无超级组，动作质量优先',
+      duration: '45-50min',
+      totalExercises: '4-6个动作',
+      setCount: 2,
+      restSeconds: '120秒',
+      forceReason: 'Deload周强制降量，动作质量优先，不追求数量',
     };
   }
 
@@ -40,9 +43,36 @@ export function resolveDepthParams({ membershipLevel = 'standard', tier = 'stand
 
   // ── 深度参数表 ────────────────────────────────────────────────────
   const depthMap = {
-    standard: { moduleCount: 3, exPerMod: 2, supersetMax: 1, noteDepth: 'basic',    duration: '60-70min' },
-    pro:      { moduleCount: 5, exPerMod: 3, supersetMax: 3, noteDepth: 'standard', duration: '70-80min' },
-    ultra:    { moduleCount: 6, exPerMod: 4, supersetMax: 4, noteDepth: 'deep',     duration: '80-90min' },
+    standard: {
+      moduleCount: 3,
+      exPerMod: 2,
+      supersetMax: 1,
+      noteDepth: 'basic',
+      duration: '60min',
+      totalExercises: '6-8个动作',
+      setCount: 3,
+      restSeconds: '90-120秒',
+    },
+    pro: {
+      moduleCount: 4,
+      exPerMod: 3,
+      supersetMax: 2,
+      noteDepth: 'standard',
+      duration: '60min',
+      totalExercises: '8-10个动作',
+      setCount: 4,
+      restSeconds: '60-90秒',
+    },
+    ultra: {
+      moduleCount: 5,
+      exPerMod: 3,
+      supersetMax: 4,
+      noteDepth: 'deep',
+      duration: '70min',
+      totalExercises: '10-14个动作',
+      setCount: 4,
+      restSeconds: '45-60秒',
+    },
   };
 
   const params = { ...(depthMap[adjustedTier] || depthMap['pro']) };

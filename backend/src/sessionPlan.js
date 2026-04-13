@@ -8,6 +8,13 @@ export async function generateSessionPlan(input = {}) {
   const lastWeekBrief = String(input.lastWeekBrief || '').trim();
   const recentSessions = Array.isArray(input.recentSessions) ? input.recentSessions : [];
 
+  const blockGoal    = String(input.blockGoal  || '').trim();
+  const weekTheme    = String(input.weekTheme  || '').trim();
+  const weekBrief    = String(input.weekBrief  || '').trim();
+  const dayName      = String(input.dayName    || '').trim();
+  const dayFocus     = String(input.dayFocus   || '').trim();
+  const clientWeight = Number(input.weight     || 65);
+
   const intensity = blockIndex % 3 === 2 ? 'deload' : blockIndex % 3 === 1 ? 'peak' : 'build';
   const intensityPhase = String(input.intensityPhase || intensity);
   const intensityLabel = intensityPhase === 'deload' ? '卸载期 Deload' : intensityPhase === 'peak' ? '峰値期 Peak' : '加载期 Build';
@@ -440,6 +447,29 @@ ${GYM_EQUIPMENT_PROMPT}
 
   const tierPrompt = sessionTier === 'ultra' ? buildUltraPrompt() : sessionTier === 'pro' ? buildProPrompt() : buildStandardPrompt();
 
+  // ── 训练上下文（最高优先级）──────────────────────────────────────
+  let contextPrompt = '';
+  if (blockGoal || weekTheme || dayName) {
+    contextPrompt = `
+[训练上下文（最高优先级，必须严格遵守）]
+- Block目标：${blockGoal || '综合体能提升'}
+- 本周主题：${weekTheme || '渐进加载'}
+- 今日课程名称：${dayName || dayFocus || '综合训练'}
+- 核心要求：今天所有模块的动作选择、组合方式必须围绕「${dayName || dayFocus}」展开
+- 动作优先级：与今日名称直接相关 > 与本周主题相关 > 通用训练动作
+`;
+  }
+
+  const weightPrompt = `
+[重量范围参考（客户体重${clientWeight}kg）]
+- 深蹲/前蹲：${Math.round(clientWeight*0.5)}-${Math.round(clientWeight*0.9)}kg
+- 硬拉/罗马尼亚：${Math.round(clientWeight*0.6)}-${Math.round(clientWeight*1.1)}kg
+- 卧推/肩推：${Math.round(clientWeight*0.25)}-${Math.round(clientWeight*0.55)}kg
+- 划船/下拉：${Math.round(clientWeight*0.25)}-${Math.round(clientWeight*0.45)}kg
+- 单侧/辅助：${Math.round(clientWeight*0.12)}-${Math.round(clientWeight*0.25)}kg
+每个动作必须给出具体重量建议（kg），根据RPE目标在范围内选择
+`;
+
   const tierLabel =
     sessionTier === 'ultra'
       ? 'Ultra 高级档（筋膜神经视角）'
@@ -449,7 +479,7 @@ ${GYM_EQUIPMENT_PROMPT}
 
   let systemPrompt = `你是 FiKA Fitness 的训练课程设计师。
 根据客户档位、体能数据、评估反馈，生成完整的单次课程训练方案。
-
+${contextPrompt}${weightPrompt}
 【当前课程信息】
 - 档位：${tierLabel}
 - 强度阶段：${intensityLabel}
@@ -506,6 +536,20 @@ ${tierPrompt}
 模块数量：${moduleCount} 个。
 group_tag 说明：超级组内动作标注 A1/A2/A3，循环动作标注 D1/D2/D3，独立动作可省略。
 Standard档 dyline 字段可省略，Pro/Ultra档必填。
+`;
+
+  // ── 输出质量要求 ───────────────────────────────────────────
+  systemPrompt += `
+[输出质量要求]
+- 总动作数控制在 ${depthParams.totalExercises || `${depthParams.moduleCount * depthParams.exPerMod}个`}，不要超出也不要不足
+- 每组组数：${depthParams.setCount || 3}组为主
+- 组间休息：${depthParams.restSeconds || '60-90秒'}
+- 每个动作必须包含：具体重量建议(kg)、节奏(如3030)、组间休息秒数
+- 深度差异体现在：
+  standard档：单关节为主，基础感知Cue，无超级组或最多1个
+  pro档：多关节复合，动力线解析，${depthParams.supersetMax}个超级组，dyline字段必填
+  ultra档：爆发+弹性，筋膜链注释，三联组，节奏X012，dyline字段必填
+- Cue口令：15字以内，描述身体感受（如「感受左髋向右膝对角线发力」）
 `;
 
   // Block 训练目标是每次课程的指挥棒 - 优先级最高

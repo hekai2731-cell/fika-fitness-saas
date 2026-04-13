@@ -1664,8 +1664,8 @@ export function PlanningPage({
           weight: client.weight,
           surveyData: (client as any).survey_data,
           weeklyData: client.weeklyData ?? (client as any).weekly_data,
-          dayName: selectedDay.day,
-          dayFocus: selectedDay.focus || selectedDay.name,
+          dayName: String((selectedDay as any)?.name || selectedDay?.day || ''),
+          dayFocus: String((selectedDay as any)?.focus || selectedDay?.name || ''),
           ...buildAiConfirmPayload(),
           membershipLevel: String((client as any).membershipLevel || 'standard'),
           statusScore: computeStatusScore(planConfirmForm.recoveryStatus, planConfirmForm.todayStatus),
@@ -1680,6 +1680,9 @@ export function PlanningPage({
           lastSessionExercises,
           lastSessionDate: lastSessionExercises.length > 0 ? '上一次该日训练' : undefined,
           lastWeekBrief: (selectedWeek as any)?.week_brief || '',
+          blockGoal:  String((selectedBlock as any)?.block_goal || (selectedBlock as any)?.goal || ''),
+          weekTheme:  String((selectedWeek as any)?.week_theme || ''),
+          weekBrief:  String((selectedWeek as any)?.week_brief || ''),
         }),
       });
 
