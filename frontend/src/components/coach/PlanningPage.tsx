@@ -669,7 +669,7 @@ export function PlanningPage({
 
   const [loadingDay, setLoadingDay] = useState(false);
   const [loadingWeek] = useState(false);
-  const [loadingFull, setLoadingFull] = useState(false);
+  const [loadingFull, _setLoadingFull] = useState(false);
 
   // ── AI 生成分步提示词 ────────────────────────────────
   const AI_STEPS_DAY  = ['分析客户历史数据...', '生成训练模块框架...', '优化动作细节...', '即将完成...'] as const;
@@ -1090,15 +1090,6 @@ export function PlanningPage({
     }
   };
 
-  // ── Block 推荐流 state ────────────────────────────────────────────
-  const [blockRec, setBlockRec] = useState<{
-    block_title: string; block_goal: string; weeks: number;
-    weakest_dimension: string; membership_level: string;
-  } | null>(null);
-  const [blockRecOpen,    setBlockRecOpen]    = useState(false);
-  const [blockRecLoading, setBlockRecLoading] = useState(false);
-  const [blockRecForm, setBlockRecForm] = useState({ title: '', goal: '', weeks: 8 });
-
   // ── Block 两步表单 state ──────────────────────────────────────────
   const [blockStep,             setBlockStep]             = useState<'form' | 'preview'>('form');
   const [blockGoals,            setBlockGoals]            = useState<string[]>([]);
@@ -1120,67 +1111,6 @@ export function PlanningPage({
     if (String(todayStatus).includes('状态好')) return 5;
     if (String(todayStatus).includes('状态差') || String(recoveryStatus).includes('酸痛')) return 1;
     return 3;
-  };
-
-  // ── 拉取 Block 推荐（不调 AI，纯规则）────────────────────────────
-  const fetchBlockRecommendation = async () => {
-    if (!client || blockRecLoading) return;
-    setBlockRecLoading(true);
-    setError(null);
-    try {
-      const rec = await fetchJsonOrThrow(apiUrl('/api/block/recommend'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: String(client.id || (client as any).roadCode || '') }),
-      });
-      setBlockRec(rec);
-      setBlockRecForm({ title: String(rec.block_title || ''), goal: String(rec.block_goal || ''), weeks: Number(rec.weeks || 8) });
-      setBlockRecOpen(true);
-    } catch (e: any) {
-      setError('Block 推荐失败：' + (e?.message || String(e)));
-    } finally {
-      setBlockRecLoading(false);
-    }
-  };
-
-  // ── 确认 Block 推荐 → 生成 Week 框架，不调 AI ───────────────────
-  const applyBlockRecommendation = async () => {
-    if (!client) return;
-    setBlockRecOpen(false);
-    setLoadingFull(true);
-    startAiSteps('full');
-    try {
-      const fw = await fetchJsonOrThrow(apiUrl('/api/week/framework'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blockGoal: blockRecForm.goal, totalWeeks: blockRecForm.weeks }),
-      });
-      const rawWeeks: any[] = Array.isArray((fw as any)?.weeks) ? (fw as any).weeks : [];
-      const training_weeks: TrainingWeek[] = rawWeeks.map((w: any, wi: number) => ({
-        id: genId('week'),
-        week_num: Number(w?.week_num || wi + 1),
-        intensity_phase: String(w?.intensity_phase || 'build'),
-        week_theme: String(w?.week_theme || ''),
-        week_brief: String(w?.week_brief || ''),
-        days: [],
-      }));
-      const newBlock: Block = {
-        id: genId('block'),
-        title: blockRecForm.title,
-        goal: blockRecForm.goal,
-        training_weeks,
-      };
-      const next: Client = { ...client, blocks: [...(client.blocks || []), newBlock] };
-      persistClient(next);
-      setSelectedBlockId(newBlock.id);
-      setSelectedWeekId(training_weeks[0]?.id || null);
-      setSelectedDayId(null);
-    } catch (e: any) {
-      setError('生成 Week 框架失败：' + (e?.message || String(e)));
-    } finally {
-      stopAiSteps('full');
-      setLoadingFull(false);
-    }
   };
 
   // ── Block 第一步：调 /api/plan/generate-framework 生成预览框架 ──────
@@ -1910,13 +1840,22 @@ export function PlanningPage({
           <Button
             type="button"
             className="plan-cta plan-cta-primary"
-            onClick={() => void fetchBlockRecommendation()}
-            disabled={anyLoading || blockRecLoading}
-            title="规则推荐 Block 目标 + 自动生成 Week 框架（不调用 AI）"
+            onClick={() => {
+              setBlockStep('form');
+              setBlockFramework(null);
+              setBlockGoals([]);
+              setBlockDir('balanced');
+              setBlockFreq(3);
+              setBlockWeeks(8);
+              setBlockNote('');
+              setAiConfirmMode('full');
+            }}
+            disabled={anyLoading}
+            title="新建训练 Block（规则生成框架，不调用 AI）"
             style={{ marginLeft: 'auto' }}
           >
-            {blockRecLoading || loadingFull ? (
-              <><span className="spin" style={{ width: 14, height: 14, marginRight: 6 }} />{loadingFull ? '生成中...' : '推荐中...'}</>
+            {loadingFull ? (
+              <><span className="spin" style={{ width: 14, height: 14, marginRight: 6 }} />生成中...</>
             ) : '✨ AI block'}
           </Button>
         </div>
@@ -2920,71 +2859,6 @@ export function PlanningPage({
                 }}
               >
                 {aiConfirmMode === 'full' && blockStep === 'preview' ? '返回修改' : '取消'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Block 推荐确认弹窗（纯规则，不调 AI）*/}
-      {blockRecOpen && blockRec && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(19,24,40,.38)', backdropFilter: 'blur(4px)', zIndex: 54,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={() => setBlockRecOpen(false)}
-        >
-          <div onClick={e => e.stopPropagation()} style={{
-            width: 'min(480px,100%)', borderRadius: 16, border: '1px solid rgba(202,208,224,.9)',
-            background: 'linear-gradient(165deg,#f5f6fb,#f0f2f8)', boxShadow: '0 18px 38px rgba(31,41,74,.22)',
-            padding: 20,
-          }}>
-            <div style={{ fontSize: 17, fontWeight: 800, color: '#202737', marginBottom: 4 }}>✨ Block 规则推荐</div>
-            <div style={{ fontSize: 12, color: '#7B8498', marginBottom: 14 }}>
-              根据{blockRec.membership_level}会员档位 + 身体资产评分，系统推荐以下配置（可修改）
-            </div>
-            <div style={{ display: 'grid', gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#5A5EFF', marginBottom: 4 }}>Block 标题</div>
-                <input value={blockRecForm.title} onChange={e => setBlockRecForm(p => ({ ...p, title: e.target.value }))}
-                  style={{ width: '100%', borderRadius: 8, border: '1px solid #D9DCE6', padding: '7px 10px', fontSize: 13, outline: 'none' }} />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#5A5EFF', marginBottom: 4 }}>
-                  训练目标
-                  <span style={{ marginLeft: 6, fontSize: 11, color: '#7B8498', fontWeight: 400 }}>
-                    薄弱维度：{blockRec.weakest_dimension}
-                  </span>
-                </div>
-                <input value={blockRecForm.goal} onChange={e => setBlockRecForm(p => ({ ...p, goal: e.target.value }))}
-                  style={{ width: '100%', borderRadius: 8, border: '1px solid #D9DCE6', padding: '7px 10px', fontSize: 13, outline: 'none' }} />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#5A5EFF', marginBottom: 4 }}>周期总周数</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {[4, 6, 8, 12, 15, 26].map(w => (
-                    <button key={w} type="button"
-                      onClick={() => setBlockRecForm(p => ({ ...p, weeks: w }))}
-                      style={{
-                        flex: 1, borderRadius: 8, border: blockRecForm.weeks === w ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                        background: blockRecForm.weeks === w ? '#F4F5FF' : '#fff',
-                        padding: '5px 0', fontSize: 12, fontWeight: 700,
-                        color: blockRecForm.weeks === w ? '#5A5EFF' : '#7B8498', cursor: 'pointer',
-                      }}>{w}周</button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button type="button" onClick={() => setBlockRecOpen(false)}
-                style={{ height: 32, borderRadius: 8, border: '1px solid rgba(167,178,211,.58)', background: 'rgba(242,246,255,.86)',
-                  color: 'rgba(56,66,96,.88)', padding: '0 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
-                取消
-              </button>
-              <button type="button" onClick={() => void applyBlockRecommendation()}
-                style={{ height: 32, borderRadius: 8, border: 'none',
-                  background: 'linear-gradient(120deg,rgba(124,132,244,.92),rgba(112,121,236,.88))',
-                  color: '#fff', padding: '0 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
-                确认创建 Block + Week 框架
               </button>
             </div>
           </div>
