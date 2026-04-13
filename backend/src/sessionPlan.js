@@ -495,6 +495,29 @@ ${statusScore >= 4 ? '- 状态评估：状态良好' : statusScore <= 2 ? '- 状
 - 每模块动作数：${depthParams.exPerMod} 个
 - 超级组上限：${depthParams.supersetMax} 个${depthParams.forceReason ? `\n⚠️ ${depthParams.forceReason}` : ''}${depthParams.adjustReason ? `\n⚠️ 深度调整：${depthParams.adjustReason}` : ''}${depthParams.mismatchWarning ? `\n⚠️ 档位提示：${depthParams.mismatchWarning}` : ''}${depthParams.qualityWarning ? `\n⚠️ 质量提示：${depthParams.qualityWarning}` : ''}
 
+【模块结构（严格按此生成，不得增减模块）】
+
+热身模块（必须是第一个模块）：
+- 时长：8-12分钟
+- 动作数：2-3个
+- 内容：关节活动串联 + 肌肉激活 + 动作模式预热
+- 不计入主训模块数量
+
+主训模块（共${depthParams.moduleCount}个）：
+${(depthParams.moduleStructure || []).map((m, i) => `
+模块${i + 1}「${m.name}」：
+- 格式：${m.format}
+- 动作数：${m.exercises}个
+- 组数：${m.sets}组
+- 组间休息：${m.rest}秒`).join('')}
+
+放松模块（最后一个模块）：
+- 时长：6-8分钟
+- 动作数：2个
+- 内容：泡沫轴放松 + 静态拉伸
+
+今日状态：${depthParams.statusLevel === 'good' ? '状态好，已增加额外动作' : depthParams.statusLevel === 'normal' ? '状态正常，标准安排' : '状态差，保守安排'}
+
 ${tierPrompt}
 
 【结构定义——必须理解】
@@ -536,6 +559,12 @@ ${tierPrompt}
 模块数量：${moduleCount} 个。
 group_tag 说明：超级组内动作标注 A1/A2/A3，循环动作标注 D1/D2/D3，独立动作可省略。
 Standard档 dyline 字段可省略，Pro/Ultra档必填。
+`;
+
+  // ── 总动作数期望 ──────────────────────────────────────────
+  const totalMainEx = (depthParams.moduleStructure || []).reduce((sum, m) => sum + m.exercises, 0);
+  systemPrompt += `
+总动作数期望：热身2-3个 + 主训${totalMainEx}个 + 放松2个 = ${totalMainEx + 4}-${totalMainEx + 5}个
 `;
 
   // ── 输出质量要求 ───────────────────────────────────────────

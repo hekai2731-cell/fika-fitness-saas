@@ -23,6 +23,11 @@ export function resolveDepthParams({ membershipLevel = 'standard', tier = 'stand
       totalExercises: '4-6个动作',
       setCount: 2,
       restSeconds: '120秒',
+      statusLevel: 'normal',
+      moduleStructure: [
+        { name: '低强度全身激活', format: '独立单体', exercises: 2, sets: 2, rest: 120 },
+        { name: '恢复拉伸',       format: '独立单体', exercises: 2, sets: 2, rest: 120 },
+      ],
       forceReason: 'Deload周强制降量，动作质量优先，不追求数量',
     };
   }
@@ -44,38 +49,77 @@ export function resolveDepthParams({ membershipLevel = 'standard', tier = 'stand
   // ── 深度参数表 ────────────────────────────────────────────────────
   const depthMap = {
     standard: {
-      moduleCount: 3,
+      moduleCount: 2,
       exPerMod: 2,
-      supersetMax: 1,
+      supersetMax: 0,
       noteDepth: 'basic',
       duration: '60min',
-      totalExercises: '6-8个动作',
-      setCount: 3,
       restSeconds: '90-120秒',
+      moduleStructure: [
+        { name: '基础复合', format: '独立单体', exercises: 2, sets: 3, rest: 120 },
+        { name: '辅助强化', format: '独立单体', exercises: 2, sets: 3, rest: 90 },
+      ],
+      statusBonus: {
+        normal: { moduleIndex: 1, extraEx: 1 },
+        good:   { moduleIndex: 1, extraEx: 1 },
+      },
     },
     pro: {
-      moduleCount: 4,
+      moduleCount: 3,
       exPerMod: 3,
       supersetMax: 2,
       noteDepth: 'standard',
       duration: '60min',
-      totalExercises: '8-10个动作',
-      setCount: 4,
       restSeconds: '60-90秒',
+      moduleStructure: [
+        { name: '地基力量',   format: '超级组A1+A2', exercises: 2, sets: 4, rest: 90 },
+        { name: '动力链主训', format: '超级组B1+B2', exercises: 2, sets: 3, rest: 75 },
+        { name: '单侧稳定',   format: '独立单体',    exercises: 2, sets: 3, rest: 60 },
+      ],
+      statusBonus: {
+        normal: { moduleIndex: 1, extraEx: 1 },
+        good:   { moduleIndex: 2, extraEx: 1 },
+      },
     },
     ultra: {
-      moduleCount: 5,
+      moduleCount: 4,
       exPerMod: 3,
       supersetMax: 4,
       noteDepth: 'deep',
       duration: '70min',
-      totalExercises: '10-14个动作',
-      setCount: 4,
       restSeconds: '45-60秒',
+      moduleStructure: [
+        { name: '最大力量爆发', format: '独立单体',     exercises: 2, sets: 4, rest: 120 },
+        { name: '动力链主训',   format: '功能链三联组', exercises: 3, sets: 3, rest: 75 },
+        { name: '单侧专项',     format: '超级组',       exercises: 2, sets: 3, rest: 60 },
+        { name: '代谢强化',     format: '循环',         exercises: 2, sets: 3, rest: 45 },
+      ],
+      statusBonus: {
+        normal: { moduleIndex: 1, extraEx: 1 },
+        good:   { moduleIndex: 2, extraEx: 1 },
+      },
     },
   };
 
+  // ── 根据 statusScore 计算状态等级 ────────────────────────────────
+  const statusLevel = statusScore >= 4 ? 'good' : statusScore >= 3 ? 'normal' : 'poor';
+
+  // ── 应用状态加成 ──────────────────────────────────────────────────
   const params = { ...(depthMap[adjustedTier] || depthMap['pro']) };
+  params.moduleStructure = params.moduleStructure.map(m => ({ ...m })); // 深拷贝
+  if (statusLevel !== 'poor' && params.statusBonus?.[statusLevel]) {
+    const bonus = params.statusBonus[statusLevel];
+    params.moduleStructure = params.moduleStructure.map((m, i) =>
+      i === bonus.moduleIndex
+        ? { ...m, exercises: m.exercises + bonus.extraEx }
+        : m
+    );
+  }
+  params.statusLevel = statusLevel;
+
+  // 保留兼容字段
+  params.setCount     = params.moduleStructure[0]?.sets ?? 3;
+  params.totalExercises = `${params.moduleStructure.reduce((s, m) => s + m.exercises, 0)}个主训动作`;
 
   // ── 限制四：standard会员 × ultra单价质量警告 ─────────────────────
   if (membershipLevel === 'standard' && tier === 'ultra') {
