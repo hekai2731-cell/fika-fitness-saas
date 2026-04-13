@@ -1096,9 +1096,16 @@ export function PlanningPage({
   };
 
   // ── Block 两步表单 state ──────────────────────────────────────────
+  const TRAINING_FOCUS_OPTIONS = [
+    { value: 'muscle_gain',    emoji: '🏋️', label: '力量增肌',  desc: '复合动作为主，渐进超负荷建立肌肉' },
+    { value: 'performance',    emoji: '⚡',  label: '运动表现',  desc: '动力链整合，爆发力和功能性提升' },
+    { value: 'fat_loss',       emoji: '🔥',  label: '减脂塑形',  desc: '代谢训练为主，有氧力量结合' },
+    { value: 'posture',        emoji: '🧘',  label: '体态矫正',  desc: '功能性动作，姿态纠正和核心稳定' },
+    { value: 'cardio',         emoji: '❤️',  label: '心肺耐力',  desc: '有氧底座建立，心肺功能提升' },
+    { value: 'rehabilitation', emoji: '🩹',  label: '功能康复',  desc: '关节活动和基础功能重建' },
+  ];
   const [blockStep,             setBlockStep]             = useState<'form' | 'preview'>('form');
-  const [blockGoals,            setBlockGoals]            = useState<string[]>([]);
-  const [blockDir,              setBlockDir]              = useState('balanced');
+  const [blockFocus,            setBlockFocus]            = useState<string>('muscle_gain');
   const [blockFreq,             setBlockFreq]             = useState(3);
   const [blockWeeks,            setBlockWeeks]            = useState(8);
   const [blockNote,             setBlockNote]             = useState('');
@@ -1127,8 +1134,8 @@ export function PlanningPage({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          goals: blockGoals.length ? blockGoals : ['performance'],
-          direction: blockDir,
+          goals: [blockFocus],
+          direction: 'balanced',
           weeklyFreq: blockFreq,
           membershipLevel: String((client as any).membershipLevel || 'standard'),
           totalWeeks: blockWeeks,
@@ -1220,8 +1227,7 @@ export function PlanningPage({
     }
     if (mode === 'full') {
       setBlockStep('form');
-      setBlockGoals([]);
-      setBlockDir('balanced');
+      setBlockFocus('muscle_gain');
       setBlockFreq(3);
       setBlockWeeks(8);
       setBlockNote('');
@@ -1850,12 +1856,11 @@ export function PlanningPage({
             className="plan-cta plan-cta-primary"
             onClick={() => {
               setBlockStep('form');
-              setBlockFramework(null);
-              setBlockGoals([]);
-              setBlockDir('balanced');
+              setBlockFocus('muscle_gain');
               setBlockFreq(3);
               setBlockWeeks(8);
               setBlockNote('');
+              setBlockFramework(null);
               setAiConfirmMode('full');
             }}
             disabled={anyLoading}
@@ -2380,48 +2385,29 @@ export function PlanningPage({
               blockStep === 'form' ? (
                 <div style={{ display: 'grid', gap: 11 }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>1. 优先目标（可多选）</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
-                      {(['减脂塑形', '增肌力量', '运动表现', '体态矫正', '康复训练', '心肺耐力'] as const).map(g => (
-                        <button key={g} type="button"
-                          onClick={() => setBlockGoals(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g])}
-                          style={{
-                            borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                            border: blockGoals.includes(g) ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: blockGoals.includes(g) ? '#8A8DFF' : '#FFF',
-                            color: blockGoals.includes(g) ? '#FFF' : '#374151',
-                          }}
-                        >{g}</button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>2. 训练方向</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 7 }}>
-                      {([
-                        { value: 'strength', label: '力量为主' },
-                        { value: 'cardio',   label: '体能为主' },
-                        { value: 'technique',label: '技术为主' },
-                        { value: 'recovery', label: '恢复为主' },
-                        { value: 'balanced', label: '综合均衡' },
-                      ]).map(opt => (
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>1. 本期训练重心（单选）</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 7 }}>
+                      {TRAINING_FOCUS_OPTIONS.map(opt => (
                         <button key={opt.value} type="button"
-                          onClick={() => setBlockDir(opt.value)}
+                          onClick={() => setBlockFocus(opt.value)}
                           style={{
-                            borderRadius: 8, padding: '6px 2px', fontSize: 11, fontWeight: 700,
-                            textAlign: 'center', cursor: 'pointer',
-                            border: blockDir === opt.value ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: blockDir === opt.value ? '#F4F5FF' : '#FFF',
-                            color: blockDir === opt.value ? '#5A5EFF' : '#7B8498',
+                            borderRadius: 10, padding: '10px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 2,
+                            border: blockFocus === opt.value ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
+                            background: blockFocus === opt.value ? '#F4F5FF' : '#FFF',
+                            color: blockFocus === opt.value ? '#5A5EFF' : '#374151',
                           }}
-                        >{opt.label}</button>
+                        >
+                          <span style={{ fontSize: 16 }}>{opt.emoji} {opt.label}</span>
+                          <span style={{ fontSize: 10, color: blockFocus === opt.value ? '#8A8DFF' : '#9CA3AF', fontWeight: 400 }}>{opt.desc}</span>
+                        </button>
                       ))}
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>3. 每周频率</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>2. 每周频率</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 7 }}>
-                      {[1, 2, 3, 4, 5].map(n => (
+                      {[2, 3, 4, 5].map(n => (
                         <button key={n} type="button"
                           onClick={() => setBlockFreq(n)}
                           style={{
@@ -2436,7 +2422,7 @@ export function PlanningPage({
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>4. 周期长度</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>3. 周期长度</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 7 }}>
                       {[2, 4, 6, 8, 12].map(n => (
                         <button key={n} type="button"
@@ -2453,7 +2439,7 @@ export function PlanningPage({
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>5. 教练备注（选填）</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>4. 教练备注（选填）</div>
                     <textarea
                       value={blockNote}
                       onChange={e => setBlockNote(e.target.value)}
