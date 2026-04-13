@@ -5,7 +5,7 @@ const ClientSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
   roadCode: { type: String, required: true, unique: true },
   name: { type: String, required: true },
-  gender: { type: String, enum: ['male', 'female'], required: true },
+  gender: { type: String, enum: ['male', 'female', 'other'], required: false, default: 'other' },
   age: { type: Number, required: true },
   height: { type: Number },
   weight: { type: Number },

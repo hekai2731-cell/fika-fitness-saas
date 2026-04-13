@@ -675,6 +675,10 @@ app.post('/api/survey/approve/:id', async (req, res) => {
       exists = !!existingClient;
     }
 
+    const normalizedGender = ['male', 'female', 'other'].includes(String(survey.gender || '').toLowerCase())
+      ? String(survey.gender).toLowerCase()
+      : 'other';
+
     // 创建新客户
     const newClient = {
       id: `client-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
@@ -682,7 +686,7 @@ app.post('/api/survey/approve/:id', async (req, res) => {
       roadCode,
       coachCode: String(coachCode).toUpperCase(),
       tier: tier || 'standard',
-      gender: 'male',
+      gender: normalizedGender,
       age: 0,
       height: height ? Number(height) : 0,
       weight: weight ? Number(weight) : 0,
