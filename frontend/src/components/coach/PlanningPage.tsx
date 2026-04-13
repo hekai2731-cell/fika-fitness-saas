@@ -533,7 +533,8 @@ function DayPlanEditor({
   const [localModules, setLocalModules] = useState<PlanModule[]>(modules);
   const [dirty, setDirty] = useState(false);
 
-  // 当 day 切换时重置
+  // 当 day 切换或 AI 写入新 modules 时重置
+  const modulesLength = ((day as any).modules || []).length;
   useEffect(() => {
     const raw = (day as any).modules || [];
     const parsed: PlanModule[] = raw.map((m: any) => ({
@@ -547,7 +548,7 @@ function DayPlanEditor({
     }));
     setLocalModules(parsed);
     setDirty(false);
-  }, [day.id]);
+  }, [day.id, modulesLength]);  // eslint-disable-line
 
   const updateMod = (idx: number, updated: PlanModule) => {
     const next = [...localModules];
