@@ -47,7 +47,8 @@ export async function generateSessionPlan(input = {}) {
   const ultraRecoveryMode = sessionTier === 'ultra' && lastRpe > 7;
 
   // 由 resolveDepthParams 统一决定模块数和每模块动作数（必须在 prompt builder 前定义）
-  const moduleCount      = depthParams.moduleCount;
+  const moduleCount      = depthParams.moduleCount;          // 主训模块数
+  const totalModuleCount = moduleCount + 2;                  // 热身 + 主训 + 放松
   const exPerModOverride = depthParams.exPerMod;
 
   const GYM_EQUIPMENT_PROMPT = `
@@ -491,7 +492,7 @@ ${rpeAdjustNote ? `- 强度调整：${rpeMode}模式（${rpeAdjustNote}）` : ''
 ${statusScore >= 4 ? '- 状态评估：状态良好' : statusScore <= 2 ? '- 状态评估：状态较差，保守执行' : '- 状态评估：状态中等，正常执行'}
 - 会员档位：${membershipLevel}
 - 训练时长：${depthParams.duration}
-- 模块数（强制）：${depthParams.moduleCount} 个
+- 总模块数（强制）：${totalModuleCount} 个（热身1 + 主训${moduleCount} + 放松1）
 - 每模块动作数：${depthParams.exPerMod} 个
 - 超级组上限：${depthParams.supersetMax} 个${depthParams.forceReason ? `\n⚠️ ${depthParams.forceReason}` : ''}${depthParams.adjustReason ? `\n⚠️ 深度调整：${depthParams.adjustReason}` : ''}${depthParams.mismatchWarning ? `\n⚠️ 档位提示：${depthParams.mismatchWarning}` : ''}${depthParams.qualityWarning ? `\n⚠️ 质量提示：${depthParams.qualityWarning}` : ''}
 
@@ -556,7 +557,7 @@ ${tierPrompt}
   ]
 }
 
-模块数量：${moduleCount} 个。
+模块数量：${totalModuleCount} 个（热身1 + 主训${moduleCount}个 + 放松1）。
 group_tag 说明：超级组内动作标注 A1/A2/A3，循环动作标注 D1/D2/D3，独立动作可省略。
 Standard档 dyline 字段可省略，Pro/Ultra档必填。
 `;
@@ -688,7 +689,7 @@ ${lastWeekBrief}
     parts.push('4. 修改节奏（如 3030 → X012，增加爆发性）');
   }
 
-  parts.push(`\n请生成完整的 ${moduleCount} 模块课程方案，每个模块的动作数、格式、视角注释按档位规范严格执行。`);
+  parts.push(`\n请生成完整的 ${totalModuleCount} 模块课程方案（热身1 + 主训${moduleCount}个 + 放松1），每个模块的动作数、格式、视角注释按档位规范严格执行。`);
 
   const exerciseSchema = {
     type: 'object',
@@ -740,7 +741,7 @@ ${lastWeekBrief}
               warmup_note: { type: 'string' },
               modules: {
                 type: 'array',
-                description: `训练模块数组，必须包含 ${moduleCount} 个模块`,
+                description: `训练模块数组，必须包含 ${totalModuleCount} 个模块（热身1 + 主训${moduleCount} + 放松1）`,
                 items: moduleSchema,
               },
             },
@@ -766,10 +767,10 @@ ${lastWeekBrief}
     const modules = sessionPlan.modules || [];
     const warnings = [];
 
-    if (modules.length !== moduleCount) {
-      console.warn(`[generateSessionPlan] 模块数量: 期望${moduleCount}, 实际${modules.length}`);
-      if (modules.length > moduleCount) sessionPlan.modules = modules.slice(0, moduleCount);
-      warnings.push(`模块数量: 期望${moduleCount}, 实际${modules.length}`);
+    if (modules.length !== totalModuleCount) {
+      console.warn(`[generateSessionPlan] 模块数量: 期望${totalModuleCount}, 实际${modules.length}`);
+      if (modules.length > totalModuleCount) sessionPlan.modules = modules.slice(0, totalModuleCount);
+      warnings.push(`模块数量: 期望${totalModuleCount}, 实际${modules.length}`);
     }
 
     if (lastRpe > 0 && sessionPlan.modules) {
