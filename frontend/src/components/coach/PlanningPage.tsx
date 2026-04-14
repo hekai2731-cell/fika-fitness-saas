@@ -634,7 +634,7 @@ export function PlanningPage({
   onOpenSession: (client: Client) => void;
 }) {
   const [client, setClient] = useState<Client | null>(null);
-  const { plan: activePlan, saveDraft: planSaveDraft, publish: planPublish, rollback: planRollback, markReviewReady: planMarkReviewReady } = usePlans(selectedClientId);
+  const { plan: activePlan, saveDraft: planSaveDraft, publish: planPublish } = usePlans(selectedClientId);
   const activePlanRef = useRef(activePlan);
   useEffect(() => { activePlanRef.current = activePlan; }, [activePlan]);
 
@@ -680,11 +680,9 @@ export function PlanningPage({
     setStep(0);
   };
   const [loadingPublish, setLoadingPublish] = useState(false);
-  const [loadingRollback, setLoadingRollback] = useState(false);
-  const [loadingReviewReady, setLoadingReviewReady] = useState(false);
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
-  const [rollbackPickerOpen, setRollbackPickerOpen] = useState(false);
-  const [rollbackVersion, setRollbackVersion] = useState('');
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const autoSaveTimerRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
@@ -830,19 +828,6 @@ export function PlanningPage({
     ];
   }, [client?.blocks, client?.published_blocks]);
 
-  const publishHistoryOptions = useMemo(() => {
-    const history = Array.isArray(client?.plan_publish_history) ? client.plan_publish_history : [];
-    return [...history].sort((a, b) => Number(b?.version || 0) - Number(a?.version || 0));
-  }, [client?.plan_publish_history]);
-
-  useEffect(() => {
-    if (!rollbackPickerOpen) return;
-    if (rollbackVersion) return;
-    const fallback = publishHistoryOptions.find((item) => Number(item?.version || 0) !== Number(client?.plan_published_version || 0));
-    if (fallback?.version != null) {
-      setRollbackVersion(String(fallback.version));
-    }
-  }, [rollbackPickerOpen, rollbackVersion, publishHistoryOptions, client?.plan_published_version]);
 
   // ── 持久化 ──────────────────────────────────────────────────
   const persistClient = (next: Client) => {
@@ -875,58 +860,62 @@ export function PlanningPage({
     if (idx >= 0) all[idx] = merged;
     else all.push(merged);
     updateClientsCache(all);
-    void saveClient(merged).catch((err) => {
-      console.error('[PlanningPage] Failed to save client:', err);
-    });
+    setAutoSaveStatus('saving');
+    if (autoSaveTimerRef.current !== null) clearTimeout(autoSaveTimerRef.current);
+    void saveClient(merged)
+      .then(() => {
+        setAutoSaveStatus('saved');
+        autoSaveTimerRef.current = window.setTimeout(() => setAutoSaveStatus('idle'), 2500);
+      })
+      .catch((err) => {
+        console.error('[PlanningPage] Failed to save client:', err);
+        setAutoSaveStatus('idle');
+      });
     setClient(merged);
   };
 
   const syncClientMirrorToLocal = (next: Client) => {
     try {
+      const publishPayload = {
+        published_blocks: next.published_blocks,
+        plan_draft_status: next.plan_draft_status,
+        plan_published_version: next.plan_published_version,
+        plan_published_at: next.plan_published_at,
+        current_week: next.current_week,
+      };
+
+      // Update fika_clients (read by student portal's syncLatestClient)
       const studentClients: Client[] = JSON.parse(localStorage.getItem('fika_clients') || '[]');
       const matchIdx = studentClients.findIndex(
         (c) => c.id === next.id || (c.roadCode && next.roadCode && c.roadCode === next.roadCode)
       );
-
       if (matchIdx >= 0) {
-        studentClients[matchIdx] = {
-          ...studentClients[matchIdx],
-          published_blocks: next.published_blocks,
-          plan_draft_status: next.plan_draft_status,
-          plan_published_version: next.plan_published_version,
-          plan_published_at: next.plan_published_at,
-        };
+        studentClients[matchIdx] = { ...studentClients[matchIdx], ...publishPayload };
       } else {
         studentClients.push(next);
       }
-
       localStorage.setItem('fika_clients', JSON.stringify(studentClients));
       localStorage.setItem('fika_current_client', JSON.stringify(next));
+
+      // Also update fika_coach_clients_v1 so student portal's TodayTab syncCoachData
+      // reads the new published_blocks and does not overwrite with stale data
+      const coachClients: Client[] = JSON.parse(localStorage.getItem('fika_coach_clients_v1') || '[]');
+      const coachIdx = coachClients.findIndex(
+        (c: any) => c.id === next.id || (c.roadCode && next.roadCode && c.roadCode === next.roadCode)
+      );
+      if (coachIdx >= 0) {
+        coachClients[coachIdx] = { ...coachClients[coachIdx], ...publishPayload };
+      } else {
+        coachClients.push(next);
+      }
+      localStorage.setItem('fika_coach_clients_v1', JSON.stringify(coachClients));
+
       window.dispatchEvent(new Event('storage'));
     } catch {
       // ignore sync errors to avoid blocking coach-side publish action
     }
   };
 
-  const markPlanReviewReady = async () => {
-    if (!client) return;
-    setLoadingReviewReady(true);
-    setError(null);
-    try {
-      const json = await fetchJsonOrThrow(apiUrl(`/api/clients/${encodeURIComponent(client.id)}/plan/review-ready`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const updated = (json as any)?.client as Client | undefined;
-      if (updated) persistClient(updated);
-      // 双写到 /api/plans
-      void planMarkReviewReady().catch((e: unknown) => console.warn('[PlanningPage] plan review-ready dual-write failed:', e));
-    } catch (e: any) {
-      setError('提交待发布失败：' + (e?.message || String(e)));
-    } finally {
-      setLoadingReviewReady(false);
-    }
-  };
 
   const publishPlanToStudent = async () => {
     if (!client) return;
@@ -956,31 +945,6 @@ export function PlanningPage({
     }
   };
 
-  const rollbackPublishedPlan = async (version?: number) => {
-    if (!client) return;
-    setLoadingRollback(true);
-    setError(null);
-    try {
-      const json = await fetchJsonOrThrow(apiUrl(`/api/clients/${encodeURIComponent(client.id)}/plan/rollback`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: version ? JSON.stringify({ version }) : JSON.stringify({}),
-      });
-      const updated = (json as any)?.client as Client | undefined;
-      if (updated) {
-        persistClient(updated);
-        syncClientMirrorToLocal(updated);
-        setRollbackPickerOpen(false);
-        setRollbackVersion('');
-        // 双写到 /api/plans
-        void planRollback(version).catch((e: unknown) => console.warn('[PlanningPage] plan rollback dual-write failed:', e));
-      }
-    } catch (e: any) {
-      setError('回滚失败：' + (e?.message || String(e)));
-    } finally {
-      setLoadingRollback(false);
-    }
-  };
 
   // 生产环境使用相对路径，开发环境使用环境变量
   const isProduction = import.meta.env.PROD;
@@ -1786,7 +1750,7 @@ export function PlanningPage({
   };
 
 
-  const anyLoading = loadingDay || loadingWeek || loadingFull || loadingPublish || loadingRollback || loadingReviewReady;
+  const anyLoading = loadingDay || loadingWeek || loadingFull || loadingPublish;
   const draftVersion = Number(client?.plan_draft_version || 1);
   const publishedVersion = Number(client?.plan_published_version || 0);
   const draftStatusText = client?.plan_draft_status === 'published'
@@ -2064,8 +2028,13 @@ export function PlanningPage({
           <div className="plan-panel-head" style={{ marginBottom: 10 }}>
             <div>
               <div className="plan-panel-title">编辑训练内容 Session Details</div>
-              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--s500)', letterSpacing: '.03em' }}>
-                状态 {draftStatusText} · 草稿 v{draftVersion} · 已发布 v{publishedVersion} · 发布时间 {publishedAtText}
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--s500)', letterSpacing: '.03em', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                <span>状态 {draftStatusText} · 草稿 v{draftVersion} · 已发布 v{publishedVersion} · 发布时间 {publishedAtText}</span>
+                {autoSaveStatus !== 'idle' && (
+                  <span style={{ color: autoSaveStatus === 'saved' ? '#22c55e' : '#94a3b8', fontWeight: 600 }}>
+                    {autoSaveStatus === 'saving' ? '· 保存中...' : '· 已自动保存 ✓'}
+                  </span>
+                )}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto', justifyContent: 'flex-end' }}>
@@ -2073,29 +2042,10 @@ export function PlanningPage({
                 <Button
                   type="button"
                   className="h-10 rounded-md border border-input bg-card px-4 text-sm font-semibold text-foreground hover:bg-muted"
-                  onClick={loadingReviewReady ? undefined : () => void markPlanReviewReady()}
-                  disabled={!client || loadingReviewReady}
-                >
-                  {loadingReviewReady ? '提交中...' : '提交待发布'}
-                </Button>
-                <Button
-                  type="button"
-                  className="h-10 rounded-md border border-input bg-card px-4 text-sm font-semibold text-foreground hover:bg-muted"
                   onClick={() => setPublishConfirmOpen(true)}
                   disabled={!client || !(client.blocks || []).length || loadingPublish}
                 >
                   {loadingPublish ? '发布中...' : '发布到学员端'}
-                </Button>
-                <Button
-                  type="button"
-                  className="h-10 rounded-md border border-input bg-card px-4 text-sm font-semibold text-foreground hover:bg-muted"
-                  onClick={() => {
-                    setRollbackVersion('');
-                    setRollbackPickerOpen(true);
-                  }}
-                  disabled={!client || publishedVersion <= 0 || loadingRollback}
-                >
-                  {loadingRollback ? '回滚中...' : '回滚上次发布'}
                 </Button>
                 <Button
                   type="button"
@@ -3033,94 +2983,6 @@ export function PlanningPage({
         </div>
       )}
 
-      {rollbackPickerOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(19,24,40,.34)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
-            zIndex: 60,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
-          onClick={() => setRollbackPickerOpen(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 'min(560px, 100%)',
-              borderRadius: 14,
-              border: '1px solid rgba(202,208,224,.9)',
-              background: '#fff',
-              boxShadow: '0 18px 38px rgba(31,41,74,.22)',
-              padding: 16,
-            }}
-          >
-            <div style={{ fontSize: 18, fontWeight: 800, color: '#202737', marginBottom: 4 }}>选择回滚版本</div>
-            <div style={{ fontSize: 12, color: '#7B8498', marginBottom: 10 }}>请选择要恢复的已发布版本。</div>
-            <div style={{ maxHeight: 220, overflowY: 'auto', display: 'grid', gap: 8 }}>
-              {publishHistoryOptions.length === 0 && (
-                <div style={{ padding: '10px 12px', borderRadius: 8, background: '#F8F9FD', fontSize: 13, color: '#4b5565' }}>
-                  暂无可回滚的历史版本。
-                </div>
-              )}
-              {publishHistoryOptions.map((item) => {
-                const version = Number(item?.version || 0);
-                const selected = rollbackVersion === String(version);
-                const at = item?.published_at ? new Date(item.published_at).toLocaleString('zh-CN', { hour12: false }) : '-';
-                return (
-                  <button
-                    key={`${version}-${at}`}
-                    type="button"
-                    onClick={() => setRollbackVersion(String(version))}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      borderRadius: 10,
-                      border: selected ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                      background: selected ? '#F4F5FF' : '#FFFFFF',
-                      padding: '8px 10px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#202737' }}>版本 v{version}</div>
-                    <div style={{ fontSize: 11, color: '#7B8498', marginTop: 2 }}>发布时间：{at}</div>
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-              <button
-                type="button"
-                onClick={() => setRollbackPickerOpen(false)}
-                style={{
-                  height: 32, borderRadius: 8, border: '1px solid #D9DCE6', background: '#fff', padding: '0 12px',
-                  cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#4b5565',
-                }}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={loadingRollback ? undefined : () => void rollbackPublishedPlan(Number(rollbackVersion || 0) || undefined)}
-                disabled={publishHistoryOptions.length === 0 || !rollbackVersion}
-                style={{
-                  height: 32, borderRadius: 8, border: 'none', background: '#5d66ed', padding: '0 12px',
-                  cursor: publishHistoryOptions.length === 0 || !rollbackVersion ? 'not-allowed' : 'pointer',
-                  fontSize: 12, fontWeight: 700, color: '#fff',
-                  opacity: publishHistoryOptions.length === 0 || !rollbackVersion ? 0.5 : 1,
-                }}
-              >
-                {loadingRollback ? '回滚中...' : '确认回滚'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <style>{`
         .planning-premium {
