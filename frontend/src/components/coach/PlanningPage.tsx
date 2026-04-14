@@ -1618,7 +1618,7 @@ export function PlanningPage({
           surveyData: (client as any).survey_data,
           weeklyData: client.weeklyData ?? (client as any).weekly_data,
           dayName: String((selectedDay as any)?.name || selectedDay?.day || ''),
-          dayFocus: String((selectedDay as any)?.focus || selectedDay?.name || ''),
+          dayFocus: String((selectedDay as any)?.focus || ''),
           ...buildAiConfirmPayload(),
           membershipLevel: String((client as any).membershipLevel || 'standard'),
           statusScore: computeStatusScore(planConfirmForm.recoveryStatus, planConfirmForm.todayStatus),
@@ -2376,7 +2376,7 @@ export function PlanningPage({
                 : aiConfirmMode === 'day'
                 ? (dayPlanStep === 'tier'
                     ? `${selectedDay?.day || '周一'} · 第一步：选择今日课程档位`
-                    : `${selectedDay?.day || '周一'} · ${planConfirmForm.selectedTier === 'ultra' ? '¥458 · 精深课程' : planConfirmForm.selectedTier === 'pro' ? '¥388 · 动力链标准课程' : '¥328 · 基础感知课程'}`)
+                    : (<><div>{selectedDay?.day || '周一'} · {(selectedDay as any)?.name || (selectedDay as any)?.focus || '今日训练'}</div><div style={{ marginTop: 2 }}>{planConfirmForm.selectedTier === 'ultra' ? '¥458 · 神经运动表现' : planConfirmForm.selectedTier === 'pro' ? '¥388 · 动力链' : '¥328 · 基础感知'}</div></>))
 
                 : `${(selectedWeek as any)?.week_theme || ((selectedWeek as any)?.intensity_phase === 'deload' ? '卸载恢复' : (selectedWeek as any)?.intensity_phase === 'peak' ? '峰值冲击' : '渐进加载')} · 调整本周训练安排`}
             </div>
@@ -2699,6 +2699,16 @@ export function PlanningPage({
             ) : (
               /* ── Step 2: 填写详情 ── */
               <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'linear-gradient(135deg, rgba(138,141,255,.1), rgba(90,94,255,.06))', border: '1px solid rgba(138,141,255,.3)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#5A5EFF', marginBottom: 4 }}>📋 今日训练方向（来自周规划）</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2638' }}>{(selectedDay as any)?.name || (selectedDay as any)?.focus || selectedDay?.day || '今日训练'}</div>
+                  {(selectedWeek as any)?.week_theme && (
+                    <div style={{ fontSize: 11, color: '#7B8498', marginTop: 3 }}>本周主题：{(selectedWeek as any).week_theme}</div>
+                  )}
+                  {(selectedWeek as any)?.week_brief && (
+                    <div style={{ fontSize: 11, color: '#7B8498', marginTop: 2 }}>说明：{(selectedWeek as any).week_brief}</div>
+                  )}
+                </div>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 本节课目标偏向</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>

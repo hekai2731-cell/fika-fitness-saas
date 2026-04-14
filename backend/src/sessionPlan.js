@@ -557,6 +557,19 @@ ${GYM_EQUIPMENT_PROMPT}
 `;
   }
 
+  if (dayName || dayFocus) {
+    contextPrompt += `
+【今日训练方向（最高优先级，必须严格遵守）】
+今日课程名称：${dayName}
+今日训练焦点：${dayFocus}
+本周主题：${weekTheme}
+Block目标：${blockGoal}
+
+以上方向已由教练在周规划中确定，今日所有模块的动作选择必须围绕「${dayFocus || dayName}」展开。
+不得偏离今日方向，不得自行改变训练焦点。
+`;
+  }
+
   const weightPrompt = `
 [重量范围参考（客户体重${clientWeight}kg）]
 - 深蹲/前蹲：${Math.round(clientWeight*0.5)}-${Math.round(clientWeight*0.9)}kg
