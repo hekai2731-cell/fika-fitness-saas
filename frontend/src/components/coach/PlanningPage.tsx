@@ -100,35 +100,6 @@ const TODAY_STATUS_OPTIONS: Array<{ value: string; label: string; desc: string }
 
 const DISCOMFORT_OPTIONS = ['无不适', '腰椎', '膝关节', '肩关节', '其他'] as const;
 
-const getGoalOptions = (membershipLevel: string, tier: string): Array<{ value: string; label: string; desc: string }> => {
-  if (tier === 'standard') return [
-    { value: 'technique', label: '动作质量', desc: '注重动作模式和感知' },
-    { value: 'strength',  label: '基础力量', desc: '渐进超负荷入门' },
-    { value: 'recovery',  label: '恢复激活', desc: '低强度恢复为主' },
-  ];
-  if (tier === 'pro') return membershipLevel === 'professional' || membershipLevel === 'elite' ? [
-    { value: 'strength',  label: '动力链主训', desc: 'X-Sling功能链训练' },
-    { value: 'power',     label: '爆发力专项', desc: '高功率输出训练' },
-    { value: 'technique', label: '功能整合',   desc: '多平面功能动作' },
-    { value: 'recovery',  label: '恢复激活',   desc: '低强度恢复为主' },
-  ] : [
-    { value: 'technique', label: '动作强化', desc: '动作模式巩固' },
-    { value: 'strength',  label: '力量渐进', desc: '渐进超负荷为主' },
-    { value: 'power',     label: '动力链激活', desc: '动力链整合训练' },
-    { value: 'recovery',  label: '恢复激活', desc: '低强度恢复为主' },
-  ];
-  return membershipLevel === 'elite' ? [
-    { value: 'power',     label: '神经激活',  desc: '神经系统最大激活' },
-    { value: 'strength',  label: '最大力量',  desc: '极限重量冲击' },
-    { value: 'technique', label: 'SSC爆发',   desc: '弹性势能专项训练' },
-    { value: 'recovery',  label: '恢复激活',  desc: '神经系统卸载恢复' },
-  ] : [
-    { value: 'strength',  label: '动力链主训', desc: 'X-Sling功能链训练' },
-    { value: 'power',     label: '爆发力专项', desc: '高功率输出训练' },
-    { value: 'technique', label: '功能整合',   desc: '多平面功能动作' },
-    { value: 'recovery',  label: '恢复激活',   desc: '低强度恢复为主' },
-  ];
-};
 
 const defaultPlanConfirmForm: PlanConfirmForm = {
   clientNeeds: '',
@@ -2710,25 +2681,7 @@ export function PlanningPage({
                   )}
                 </div>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 本节课目标偏向</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
-                    {getGoalOptions((client as any)?.membershipLevel || 'standard', planConfirmForm.selectedTier || 'standard').map((opt) => {
-                      const on = planConfirmForm.sessionGoal === opt.value;
-                      return (
-                        <button key={opt.value} type="button"
-                          onClick={() => setPlanConfirmForm((prev) => ({ ...prev, sessionGoal: opt.value }))}
-                          style={{ borderRadius: 12, border: on ? '2px solid #8A8DFF' : '1px solid #D9DCE6',
-                            background: on ? '#F4F5FF' : '#FFFFFF', padding: '8px 8px', textAlign: 'center', cursor: 'pointer' }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#202737' }}>{opt.label}</div>
-                          <div style={{ fontSize: 10, marginTop: 2, color: '#7B8498' }}>{opt.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 恢复状态</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>1. 恢复状态</div>
                   <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>上次训练距今多久？身体感觉如何？</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
                     {RECOVERY_OPTIONS.map((opt) => {
@@ -2747,7 +2700,7 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 今日状态</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>2. 今日状态</div>
                   <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>精神、睡眠、压力</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
                     {TODAY_STATUS_OPTIONS.map((opt) => {
@@ -2766,7 +2719,7 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>4. 今日身体不适区域</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>3. 今日身体不适区域</div>
                   <div style={{ fontSize: 12, color: '#7B8498', marginTop: 2 }}>可多选</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                     {DISCOMFORT_OPTIONS.map((area) => {
@@ -2784,7 +2737,7 @@ export function PlanningPage({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>5. 教练备注（可选）</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1E2638' }}>4. 教练备注（可选）</div>
                   <textarea value={planConfirmForm.preSessionNote}
                     onChange={(e) => setPlanConfirmForm((prev) => ({ ...prev, preSessionNote: e.target.value }))}
                     placeholder="例如：客户昨晚失眠，注意控制强度..."

@@ -779,15 +779,15 @@ ${lastWeekBrief}
     parts.push(`- 恢复状态：${psd.recoveryStatus}`);
     parts.push(`- 今日状态：${psd.todayStatus}`);
     parts.push(`- 不适区域：${(psd.discomfortAreas || []).join('、') || '无'}`);
-    parts.push(`- 本节课目标：${psd.sessionGoal}`);
     if (psd.customNotes) parts.push(`- 教练备注：${psd.customNotes}`);
+    if (psd.coachNote) parts.push(`- 教练备注：${psd.coachNote}`);
 
     const isRecoveryPoor = String(psd.recoveryStatus || '').includes('酸痛') || String(psd.todayStatus || '').includes('状态差');
     const hasDiscomfort = Array.isArray(psd.discomfortAreas) && psd.discomfortAreas.some((a) => a !== '无不适');
     if (isRecoveryPoor) parts.push('⚠️ 强制：恢复不足，降低强度，减少组数，增加间歇');
     if (hasDiscomfort)
       parts.push(`⚠️ 强制：${psd.discomfortAreas.filter((a) => a !== '无不适').join('、')}不适，必须规避相关动作`);
-    if (psd.sessionGoal === '恢复激活') parts.push('⚠️ 强制：恢复激活模式，整体强度不超过RPE 5');
+    if (String(psd.todayStatus || '').includes('状态差')) parts.push('⚠️ 强制：客户今日状态差，整体强度不超过RPE 5，以恢复激活为主');
   }
 
   // 同类训练日的上一次记录 - 作为动作递增和变异的基准
