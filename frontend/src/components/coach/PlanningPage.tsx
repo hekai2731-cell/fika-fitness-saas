@@ -615,7 +615,7 @@ function DayPlanEditor({
 // ─── 主组件 ─────────────────────────────────────────────────────────────────────
 export function PlanningPage({
   selectedClientId,
-  onSelectClient,
+  onSelectClient: _onSelectClient,
   onOpenSession,
 }: {
   selectedClientId: string | null;
@@ -673,7 +673,7 @@ export function PlanningPage({
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const autoSaveTimerRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [weekPickerOpen, setWeekPickerOpen] = useState(false);
+  const [, setWeekPickerOpen] = useState(false);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
   const [deleteMenu, setDeleteMenu] = useState<LongPressDeleteMenu | null>(null);
   const pressTimerRef = useRef<number | null>(null);
@@ -688,12 +688,6 @@ export function PlanningPage({
 
   // ── 课前速览面板状态 ──
   const [preSessionPreviewOpen, setPreSessionPreviewOpen] = useState(false);
-
-  useEffect(() => {
-    const list = getClientsFromCache();
-    const visible = list.filter(c => c.name !== '示例客户');
-    if (!selectedClientId && visible.length > 0) onSelectClient(visible[0].id);
-  }, [onSelectClient, selectedClientId]);
 
   useEffect(() => {
     if (!selectedClientId) { setClient(null); return; }
@@ -1760,7 +1754,7 @@ export function PlanningPage({
         boxShadow: 'none',
       }}
     >
-      <div className="phase-strip">
+      <div className="phase-strip" style={{ display: 'none' }}>
         <div className="phase-top-row">
           <div>
             <CardTitle>大周期阶段管理 / Macrocycle Phases</CardTitle>
@@ -1841,6 +1835,89 @@ export function PlanningPage({
       </div>
 
       <div className="plan-main" style={{ marginTop: 12 }}>
+        <div style={{
+          background: 'var(--panel-bg)',
+          border: '1px solid var(--panel-border)',
+          borderRadius: 18,
+          padding: '10px 8px',
+          backdropFilter: 'blur(8px)',
+          height: '100%',
+          maxHeight: '100%',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '0 2px 6px', borderBottom: '1px solid var(--s100)' }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--s400)', letterSpacing: '.12em', padding: '0 4px' }}>
+              BLOCKS
+            </div>
+            <Button
+              type="button"
+              className="plan-cta plan-cta-primary"
+              onClick={() => {
+                setBlockStep('form');
+                setBlockFocus('muscle_gain');
+                setBlockFreq(3);
+                setBlockWeeks(8);
+                setBlockNote('');
+                setBlockFramework(null);
+                setAiConfirmMode('full');
+              }}
+              disabled={anyLoading}
+              title="新建训练 Block（规则生成框架，不调用 AI）"
+              style={{ height: 24, minWidth: 74, padding: '0 8px', fontSize: 10, borderRadius: 8 }}
+            >
+              {loadingFull ? '生成中...' : 'AI block'}
+            </Button>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {(client?.blocks || []).map((b, bi) => (
+              <button
+                key={b.id}
+                onClick={() => {
+                  setSelectedBlockId(b.id);
+                  const wk = b.training_weeks?.[0];
+                  setSelectedWeekId(wk?.id || null);
+                  setSelectedDayId(wk?.days?.[0]?.id || null);
+                }}
+                style={{
+                  width: '100%', textAlign: 'left',
+                  padding: '8px 10px', borderRadius: 10,
+                  border: selectedBlockId === b.id
+                    ? '1.5px solid var(--p3)'
+                    : '1px solid transparent',
+                  background: selectedBlockId === b.id
+                    ? 'var(--p2)'
+                    : 'rgba(255,255,255,0.4)',
+                  cursor: 'pointer', transition: 'all .12s',
+                }}
+              >
+                <div style={{ fontSize: 9, fontWeight: 700, color: selectedBlockId === b.id ? 'var(--p)' : 'var(--s400)', letterSpacing: '.08em' }}>
+                  BLOCK {bi + 1}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: selectedBlockId === b.id ? 'var(--p)' : 'var(--s800)', marginTop: 2, lineHeight: 1.3 }}>
+                  {b.title || `Block ${bi + 1}`}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--s400)', marginTop: 3 }}>
+                  {(b.training_weeks || []).length} 周
+                </div>
+              </button>
+            ))}
+            <button
+              onClick={addBlock}
+              style={{
+                width: '100%', padding: '8px 10px', borderRadius: 10,
+                border: '1px dashed var(--s200)',
+                background: 'transparent',
+                color: 'var(--s400)', fontSize: 11,
+                cursor: 'pointer', textAlign: 'center',
+              }}
+            >+ 新建</button>
+          </div>
+        </div>
+
         <div className="plan-sidebar">
           <div className="plan-panel-head">
             <div className="plan-panel-title">WEEKLY FOCUS</div>
@@ -1851,11 +1928,11 @@ export function PlanningPage({
               onClick={() => openAiConfirm('week')}
               disabled={anyLoading || !selectedWeek}
               title="AI 生成当前周所有训练日名称和重点"
-              style={{ width: 168, minWidth: 168 }}
+              style={{ width: 112, minWidth: 112, height: 30, padding: '0 10px', fontSize: 12 }}
             >
               {loadingWeek ? (
                 <><span className="spin" style={{ width: 14, height: 14, marginRight: 6 }} />生成中...</>
-              ) : '✨ AI 生成周规划'}
+              ) : '本周有变动'}
             </Button>
           </div>
           {loadingWeek && (
@@ -1865,59 +1942,179 @@ export function PlanningPage({
           )}
 
           <div className="week-picker-wrap">
-            <div className="week-picker-head">
-              <button
-                type="button"
-                className="week-picker-toggle"
-                onClick={() => setWeekPickerOpen(v => !v)}
-              >
-                <span>{selectedWeek ? `Week ${selectedWeek.week_num} · 当前选择` : '选择 Week'}</span>
-                <span className={cn('week-picker-chevron', weekPickerOpen && 'on')} aria-hidden="true">⌄</span>
-              </button>
-              <button type="button" className="phase-link week-add-btn mini-ctrl-btn" onClick={addWeek}>+ 新建 Week</button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--s400)', letterSpacing: '.12em' }}>WEEKS</div>
+              <button onClick={addWeek} style={{ fontSize: 11, color: 'var(--p)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>+ 新建</button>
             </div>
-            {weekPickerOpen && (
-              <div className="week-picker-panel">
-                {(selectedBlock?.training_weeks || []).length === 0 ? (
-                  <div style={{ padding: 12, fontSize: 12, color: 'var(--s400)', textAlign: 'center' }}>
-                    暂无 Week，点击上方"+ 新建 Week"创建
+            <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, minHeight: 0 }}>
+              {(selectedBlock?.training_weeks || []).map((w) => {
+                const phase = (w as any).intensity_phase || 'build';
+                const phaseColor = phase === 'deload' ? '#10b981' : phase === 'peak' ? '#ef4444' : '#FF6B35';
+                const phaseLabel = phase === 'deload' ? 'Deload' : phase === 'peak' ? 'Peak' : 'Build';
+                return (
+                  <div key={w.id} style={{ display: 'flex', flexDirection: 'column' }}>
+                    <button
+                      onClick={() => {
+                        setSelectedWeekId(w.id);
+                        setSelectedDayId(w.days?.[0]?.id || null);
+                        setWeekPickerOpen(false);
+                      }}
+                      onDoubleClick={(e) => { e.stopPropagation(); editWeekById(w.id); }}
+                      onMouseDown={(e) => startLongPress(e, { type: 'week', weekId: w.id })}
+                      onMouseUp={cancelLongPress}
+                      onMouseLeave={cancelLongPress}
+                      onTouchStart={(e) => startLongPress(e, { type: 'week', weekId: w.id })}
+                      onTouchEnd={cancelLongPress}
+                      onContextMenu={(e) => e.preventDefault()}
+                      style={{
+                        width: '100%', textAlign: 'left',
+                        padding: '8px 10px', borderRadius: selectedWeekId === w.id ? '10px 10px 0 0' : 10,
+                        border: selectedWeekId === w.id
+                          ? '1.5px solid var(--p3)'
+                          : '1px solid transparent',
+                        background: selectedWeekId === w.id
+                          ? 'var(--p2)'
+                          : 'rgba(255,255,255,0.4)',
+                        cursor: 'pointer', transition: 'all .12s',
+                        borderBottom: selectedWeekId === w.id ? 'none' : undefined,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: selectedWeekId === w.id ? 'var(--p)' : 'var(--s500)' }}>
+                          Week {w.week_num}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, padding: '1px 6px',
+                            borderRadius: 4,
+                            background: `${phaseColor}18`,
+                            color: phaseColor,
+                          }}>
+                            {phaseLabel}
+                          </span>
+                          <span style={{
+                            fontSize: 11,
+                            color: selectedWeekId === w.id ? 'var(--p)' : 'var(--s400)',
+                            transition: 'transform .2s',
+                            display: 'inline-block',
+                            transform: selectedWeekId === w.id ? 'rotate(180deg)' : 'rotate(0deg)',
+                          }}>⌄</span>
+                        </div>
+                      </div>
+                      <div style={{
+                        fontSize: 11, fontWeight: 600,
+                        color: selectedWeekId === w.id ? 'var(--p)' : 'var(--s700)',
+                        marginTop: 2, lineHeight: 1.3,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}>
+                        {(w as any).week_title || '本周训练'}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--s400)', marginTop: 2 }}>
+                        {(w.days || []).map(d => d.day).join(' · ') || '暂无训练日'}
+                      </div>
+                    </button>
+
+                    {selectedWeekId === w.id && (
+                      <div style={{
+                        padding: '10px 12px',
+                        background: 'linear-gradient(160deg, rgba(232,238,255,.6), rgba(219,228,251,.5))',
+                        border: '1.5px solid var(--p3)',
+                        borderTop: 'none',
+                        borderRadius: '0 0 10px 10px',
+                        marginBottom: 4,
+                      }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--p)', marginBottom: 6 }}>
+                          本周重点
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--s700)', lineHeight: 1.6, marginBottom: 8 }}>
+                          {(() => {
+                            const theme = (w as any).week_theme;
+                            if (!theme) return '本周重点聚焦动作质量与强度推进。';
+                            if (typeof theme === 'object' && theme !== null) {
+                              return Object.values(theme)
+                                .map((v: any) => v?.day_focus || '')
+                                .filter(Boolean)
+                                .join(' · ') || '本周重点聚焦动作质量与强度推进。';
+                            }
+                            return String(theme);
+                          })()}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
+                          {(w as any).volume && (
+                            <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: 'rgba(108,99,255,0.1)', color: 'var(--p)', border: '1px solid var(--p3)' }}>
+                              VOLUME: {(w as any).volume}
+                            </span>
+                          )}
+                          {(w as any).intensity_phase && (
+                            <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: `${phaseColor}15`, color: phaseColor, border: `1px solid ${phaseColor}30` }}>
+                              {phaseLabel.toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+
+                        {(w.days || []).length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            {(w.days || []).map((d) => {
+                              const isToday = d.day === new Date().toLocaleDateString('zh-CN', { weekday: 'long' }).replace('星期', '周');
+                              return (
+                                <button
+                                  key={d.id}
+                                  onClick={() => setSelectedDayId(d.id)}
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: 8,
+                                    padding: '4px 6px', borderRadius: 7,
+                                    background: selectedDayId === d.id ? 'rgba(108,99,255,0.12)' : 'transparent',
+                                    border: 'none', cursor: 'pointer', textAlign: 'left', width: '100%',
+                                    transition: 'background .1s',
+                                  }}
+                                >
+                                  <div style={{
+                                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                                    background: isToday ? 'var(--p)' : selectedDayId === d.id ? 'var(--p)' : 'rgba(108,99,255,0.3)',
+                                  }} />
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{
+                                      fontSize: 11, fontWeight: 600,
+                                      color: selectedDayId === d.id ? 'var(--p)' : 'var(--s700)',
+                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                    }}>
+                                      {d.name || d.day}
+                                    </div>
+                                    {d.focus && (
+                                      <div style={{
+                                        fontSize: 10, color: 'var(--s400)',
+                                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                      }}>
+                                        Focus: {d.focus}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {isToday && (
+                                    <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: 'var(--p)', color: '#fff', flexShrink: 0 }}>
+                                      TODAY
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  (selectedBlock?.training_weeks || []).map((w) => (
-                  <button
-                    type="button"
-                    key={w.id}
-                    className={cn('week-picker-item', selectedWeekId === w.id && 'on')}
-                    onClick={() => {
-                      setSelectedWeekId(w.id);
-                      setSelectedDayId(w.days?.[0]?.id || null);
-                      setWeekPickerOpen(false);
-                    }}
-                    onDoubleClick={(e) => { e.stopPropagation(); editWeekById(w.id); }}
-                    onMouseDown={(e) => startLongPress(e, { type: 'week', weekId: w.id })}
-                    onMouseUp={cancelLongPress}
-                    onMouseLeave={cancelLongPress}
-                    onTouchStart={(e) => startLongPress(e, { type: 'week', weekId: w.id })}
-                    onTouchEnd={cancelLongPress}
-                    onContextMenu={(e) => e.preventDefault()}
-                  >
-                    <div className="wt">{(w as any).week_title || `Week ${w.week_num}`}</div>
-                    <div style={{ marginTop: 4, fontSize: 12 }}>
-                      {(w as any).week_theme
-                        ? String((w as any).week_theme).slice(0, 12)
-                        : (w.days || []).map(d => d.day).join(' · ') || '暂无训练日'}
-                    </div>
-                  </button>
-                ))
-                )}
-              </div>
-            )}
+                );
+              })}
+              {!selectedBlock && (
+                <div style={{ fontSize: 11, color: 'var(--s400)', padding: '12px 6px', textAlign: 'center' }}>先选择 Block</div>
+              )}
+            </div>
           </div>
 
           {!selectedBlock && <div style={{ fontSize: 12, color: 'var(--s400)', padding: 10 }}>先选择 Block</div>}
 
           {selectedWeek && (
-            <>
+            <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, display: 'none' }}>
               <div className="week-intro-card">
                 <div className="week-intro-top">
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--p)', letterSpacing: '.08em' }}>WEEK {selectedWeek.week_num} / 第四周</div>
@@ -1947,7 +2144,7 @@ export function PlanningPage({
                   <div className="week-intro-main">
                     <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--s900)', marginTop: 4 }}>本周重点介绍</div>
                     <div style={{ fontSize: 11, color: 'var(--s500)', fontWeight: 700, letterSpacing: '.08em', marginTop: 4 }}>WEEKLY FOCUS OVERVIEW</div>
-                    <div style={{ fontSize: 13, color: 'var(--s700)', marginTop: 10, lineHeight: 1.65 }}>
+                    <div style={{ fontSize: 13, color: 'var(--s700)', marginTop: 10, lineHeight: 1.65, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
                       {(() => {
                         const theme = (selectedWeek as any)?.week_theme;
                         if (!theme) return '本周重点聚焦动作质量与强度推进，保持恢复节奏。';
@@ -2000,12 +2197,12 @@ export function PlanningPage({
                 </div>
               </div>
 
-            </>
+            </div>
           )}
         </div>
 
-        <div className="plan-workbench">
-          <div className="plan-panel-head" style={{ marginBottom: 10 }}>
+        <div className="plan-workbench" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+          <div className="plan-panel-head" style={{ marginBottom: 10, flexShrink: 0 }}>
             <div>
               <div className="plan-panel-title">编辑训练内容 Session Details</div>
               <div style={{ marginTop: 4, fontSize: 11, color: 'var(--s500)', letterSpacing: '.03em', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
@@ -2290,55 +2487,94 @@ export function PlanningPage({
             <div style={{ padding: 10, fontSize: 12, color: 'var(--s400)' }}>先选择训练日</div>
           ) : (
             <>
-              {(() => {
-                const d = selectedDay;
-                const hasPlan = Array.isArray((d as any).modules) && (d as any).modules.length > 0;
-                return (
-                  <div
-                    className={cn('day-card', 'sel-day', 'session-hero', hasPlan && 'done-day')}
-                    onDoubleClick={() => editDayById(d.id)}
-                    onMouseDown={(e) => startLongPress(e, { type: 'day', dayId: d.id })}
-                    onMouseUp={cancelLongPress}
-                    onMouseLeave={cancelLongPress}
-                    onTouchStart={(e) => startLongPress(e, { type: 'day', dayId: d.id })}
-                    onTouchEnd={cancelLongPress}
-                    onContextMenu={(e) => e.preventDefault()}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
-                        <div style={{ fontWeight: 800, color: 'rgba(24,31,45,.92)', whiteSpace: 'nowrap' }}>{d.day}</div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: 'rgba(24,31,45,.92)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {d.name || '单次训练 Session Details'}
+              <div style={{ display: 'flex', gap: 4, padding: '0 0 10px', borderBottom: '1px solid var(--s100)', marginBottom: 12, overflowX: 'auto', flexShrink: 0 }}>
+                {(selectedWeek?.days || []).map((d) => {
+                  const isSelected = d.id === selectedDayId;
+                  const hasPlan = Array.isArray((d as any).modules) && (d as any).modules.length > 0;
+                  return (
+                    <button
+                      key={d.id}
+                      onClick={() => setSelectedDayId(d.id)}
+                      style={{
+                        padding: '5px 12px', borderRadius: 8, flexShrink: 0,
+                        border: isSelected ? '1.5px solid var(--p)' : '1px solid var(--s200)',
+                        background: isSelected ? 'var(--p2)' : 'rgba(255,255,255,0.5)',
+                        color: isSelected ? 'var(--p)' : 'var(--s600)',
+                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        position: 'relative',
+                        transition: 'all .12s',
+                      }}
+                    >
+                      {d.day}
+                      {hasPlan && (
+                        <span style={{ position: 'absolute', top: 2, right: 2, width: 5, height: 5, borderRadius: '50%', background: '#10b981' }} />
+                      )}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setDayPickerOpen(v => !v)}
+                  style={{
+                    padding: '5px 10px', borderRadius: 8, flexShrink: 0,
+                    border: '1px dashed var(--s200)',
+                    background: 'transparent',
+                    color: 'var(--s400)', fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >+ 新建 Day</button>
+              </div>
+
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                {(() => {
+                  const d = selectedDay;
+                  const hasPlan = Array.isArray((d as any).modules) && (d as any).modules.length > 0;
+                  return (
+                    <div
+                      className={cn('day-card', 'sel-day', 'session-hero', hasPlan && 'done-day')}
+                      onDoubleClick={() => editDayById(d.id)}
+                      onMouseDown={(e) => startLongPress(e, { type: 'day', dayId: d.id })}
+                      onMouseUp={cancelLongPress}
+                      onMouseLeave={cancelLongPress}
+                      onTouchStart={(e) => startLongPress(e, { type: 'day', dayId: d.id })}
+                      onTouchEnd={cancelLongPress}
+                      onContextMenu={(e) => e.preventDefault()}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                          <div style={{ fontWeight: 800, color: 'rgba(24,31,45,.92)', whiteSpace: 'nowrap' }}>{d.day}</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: 'rgba(24,31,45,.92)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {d.name || '单次训练 Session Details'}
+                          </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={addModuleToSelectedDay}
+                          style={{
+                            height: 24,
+                            padding: '0 10px',
+                            borderRadius: 7,
+                            border: '1px solid var(--s200)',
+                            background: '#fff',
+                            fontSize: 11,
+                            color: 'var(--s600)',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          + 添加模块
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={addModuleToSelectedDay}
-                        style={{
-                          height: 24,
-                          padding: '0 10px',
-                          borderRadius: 7,
-                          border: '1px solid var(--s200)',
-                          background: '#fff',
-                          fontSize: 11,
-                          color: 'var(--s600)',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        + 添加模块
-                      </button>
+                      <div style={{ marginTop: 2, fontSize: 11, color: 'rgba(82,92,122,.82)' }}>{(d as any).name_en || (d as any).focus_en || 'Session Focus'}</div>
+                      <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <span className="session-chip">TARGET: HYPERTROPHY</span>
+                        <span className="session-chip">RPE TRACKING</span>
+                      </div>
                     </div>
-                    <div style={{ marginTop: 2, fontSize: 11, color: 'rgba(82,92,122,.82)' }}>{(d as any).name_en || (d as any).focus_en || 'Session Focus'}</div>
-                    <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <span className="session-chip">TARGET: HYPERTROPHY</span>
-                      <span className="session-chip">RPE TRACKING</span>
-                    </div>
-                  </div>
-                );
-              })()}
-              <Separator className="my-3" />
-              <DayPlanEditor day={selectedDay} onSave={saveDayModules} />
+                  );
+                })()}
+                <Separator className="my-3" />
+                <DayPlanEditor day={selectedDay} onSave={saveDayModules} />
+              </div>
             </>
           )}
         </div>
@@ -3182,9 +3418,12 @@ export function PlanningPage({
 
         .planning-premium .plan-main {
           display: grid;
-          grid-template-columns: 390px minmax(0, 1fr);
-          gap: 12px;
+          grid-template-columns: 180px 330px minmax(0, 1fr);
+          gap: 10px;
           align-items: stretch;
+          height: calc(100vh - 200px);
+          min-height: 620px;
+          max-height: none;
         }
 
         .planning-premium .plan-sidebar,
@@ -3196,13 +3435,14 @@ export function PlanningPage({
           backdrop-filter: blur(8px);
           -webkit-backdrop-filter: blur(8px);
           box-shadow: var(--panel-shadow);
-          height: min(640px, calc(100vh - 248px));
-          max-height: min(640px, calc(100vh - 248px));
+          height: 100%;
+          max-height: 100%;
           overflow-y: auto;
+          overflow-x: hidden;
         }
 
         .planning-premium .plan-workbench {
-          max-width: 690px;
+          max-width: 590px;
           width: 100%;
           justify-self: end;
         }
@@ -3210,6 +3450,9 @@ export function PlanningPage({
         .planning-premium .plan-sidebar {
           display: flex;
           flex-direction: column;
+          height: 100%;
+          min-width: 0;
+          overflow: hidden;
         }
 
         .planning-premium .plan-panel-head {
@@ -3295,6 +3538,7 @@ export function PlanningPage({
         .planning-premium .week-intro-main {
           min-width: 0;
           width: 100%;
+          overflow: hidden;
         }
 
         .planning-premium .week-timeline {
@@ -3311,19 +3555,21 @@ export function PlanningPage({
           width: 100%;
           flex: 1 1 auto;
           min-width: 0;
-          max-height: 270px;
-          overflow: auto;
+          max-height: 200px;
+          overflow-y: auto;
+          overflow-x: hidden;
           padding-right: 4px;
         }
 
         .planning-premium .week-timeline-item {
           display: grid;
           grid-template-columns: 14px minmax(0, 1fr) auto;
-          gap: 10px;
+          gap: 6px;
           align-items: start;
           padding: 4px 0;
           border-radius: 10px;
           cursor: pointer;
+          overflow: hidden;
         }
 
         .planning-premium .week-picker-chevron {
@@ -3364,10 +3610,14 @@ export function PlanningPage({
         }
 
         .planning-premium .week-timeline-title {
-          font-size: 15px;
-          font-weight: 800;
+          font-size: 11px;
+          font-weight: 600;
           line-height: 1.2;
-          color: rgba(32, 38, 54, .88);
+          color: var(--s800);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 100%;
         }
 
         .planning-premium .week-timeline-item.on .week-timeline-title {
@@ -3384,9 +3634,12 @@ export function PlanningPage({
 
         .planning-premium .week-timeline-sub {
           margin-top: 6px;
-          font-size: 12px;
-          font-weight: 600;
-          color: rgba(88, 95, 120, .86);
+          font-size: 10px;
+          color: var(--s500);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 100%;
         }
 
         .planning-premium .week-status-wrap {
@@ -3783,14 +4036,9 @@ export function PlanningPage({
           box-shadow: 0 8px 18px rgba(85, 92, 134, .12);
         }
 
-        @media (max-width: 980px) {
-          .planning-premium .phase-grid > * {
-            min-width: 240px;
-            max-width: 320px;
-          }
-
+        @media (max-width: 1194px) {
           .planning-premium .plan-main {
-            grid-template-columns: 1fr;
+            height: calc(100vh - 180px);
           }
 
           .planning-premium .plan-workbench {
@@ -3798,6 +4046,24 @@ export function PlanningPage({
             justify-self: stretch;
           }
         }
+
+        @media (max-width: 900px) {
+          .planning-premium .phase-grid > * {
+            min-width: 240px;
+            max-width: 320px;
+          }
+
+          .planning-premium .plan-main {
+            grid-template-columns: 1fr;
+            height: auto;
+            min-height: 0;
+            max-height: none;
+          }
+
+          .planning-premium .plan-workbench {
+            max-width: 100%;
+            justify-self: stretch;
+          }
 
           .planning-premium .plan-sidebar,
           .planning-premium .plan-workbench {

@@ -508,6 +508,51 @@ app.delete('/api/clients/:id', async (req, res) => {
   }
 });
 
+app.post('/api/clients/:id/restore', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await Client.collection.updateOne(
+      { id },
+      {
+        $unset: {
+          deletedAt: '',
+          deletedByCoachCode: '',
+          deletedByCoachName: '',
+        },
+        $set: { updatedAt: new Date() },
+      }
+    );
+
+    if (!result.matchedCount) {
+      return res.status(404).json({ error: 'client not found' });
+    }
+
+    console.log('[backend] Client restored in MongoDB:', id);
+    return res.json({ success: true, id });
+  } catch (err) {
+    console.error('[backend] MongoDB restore failed:', err);
+    return res.status(500).json({ error: 'MongoDB connection failed', details: String(err) });
+  }
+});
+
+app.delete('/api/clients/:id/hard', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await Client.collection.deleteOne({ id });
+    if (!result.deletedCount) {
+      return res.status(404).json({ error: 'client not found' });
+    }
+
+    console.log('[backend] Client hard deleted in MongoDB:', id);
+    return res.json({ success: true, id });
+  } catch (err) {
+    console.error('[backend] MongoDB hard delete failed:', err);
+    return res.status(500).json({ error: 'MongoDB connection failed', details: String(err) });
+  }
+});
+
 // Coach data APIs
 app.get('/api/coaches', async (req, res) => {
   try {

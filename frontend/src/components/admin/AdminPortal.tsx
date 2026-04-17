@@ -4,8 +4,8 @@
  * 放到 frontend/src/components/admin/AdminPortal.tsx
  */
 
-import { useState, useEffect, type ReactNode } from 'react';
-import { loadCoaches, saveCoaches, getCoachesFromCache } from '@/lib/store';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { loadCoaches, saveCoaches, getCoachesFromCache, updateClientsCache } from '@/lib/store';
 
 // ── 类型 ─────────────────────────────────────────────────────
 interface Session {
@@ -138,21 +138,42 @@ function loadMergedClientsFromStores(): Client[] {
 }
 
 function persistClientsToStores(clients: Client[]) {
+  updateClientsCache(clients as any);
   lsSet('clients', clients);
   localStorage.setItem(COACH_CLIENTS_KEY, JSON.stringify(clients));
+  window.dispatchEvent(new Event('fika:clients-updated'));
 }
 
 async function syncClientToServer(client: Client) {
-  try {
-    const res = await fetch(`/api/clients/${encodeURIComponent(client.id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(client),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  } catch (err) {
-    console.error('[AdminPortal] Failed to sync client to server:', err);
-  }
+  const res = await fetch(`/api/clients/${encodeURIComponent(client.id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(client),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+async function softDeleteClientOnServer(client: Client, deletedByCoachCode: string, deletedByCoachName: string) {
+  const res = await fetch(`/api/clients/${encodeURIComponent(client.id)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deletedByCoachCode, deletedByCoachName }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+async function restoreClientOnServer(client: Client) {
+  const res = await fetch(`/api/clients/${encodeURIComponent(client.id)}/restore`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+async function hardDeleteClientOnServer(client: Client) {
+  const res = await fetch(`/api/clients/${encodeURIComponent(client.id)}/hard`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -426,7 +447,9 @@ function CodesTab({
     onClientsChange(updated);
     const changedClient = updated.find((c) => c.id === clientId);
     if (changedClient) {
-      void syncClientToServer(changedClient);
+      void syncClientToServer(changedClient).catch((err) => {
+        console.error('[AdminPortal] Failed to sync client code change:', err);
+      });
     }
   };
 
@@ -456,7 +479,9 @@ function CodesTab({
     updatedClients
       .filter((c) => String(c.coachCode || '') === String(nextCode))
       .forEach((client) => {
-        void syncClientToServer(client);
+        void syncClientToServer(client).catch((err) => {
+          console.error('[AdminPortal] Failed to sync coach code remap:', err);
+        });
       });
   };
 
@@ -759,6 +784,12 @@ function ClientsTab({
     const updated = clients.map((c) => (c.id === clientId ? { ...c, coachCode } : c));
     onClientsChange(updated);
     persistClientsToStores(updated);
+    const changedClient = updated.find((c) => c.id === clientId);
+    if (changedClient) {
+      void syncClientToServer(changedClient).catch((err) => {
+        console.error('[AdminPortal] Failed to sync assigned coach:', err);
+      });
+    }
   };
 
   const addClient = () => {
@@ -783,6 +814,10 @@ function ClientsTab({
     const updated = [...clients, newClient];
     onClientsChange(updated);
     persistClientsToStores(updated);
+    void syncClientToServer(newClient).catch((err) => {
+      console.error('[AdminPortal] Failed to sync new client:', err);
+      alert('客户已在本地新增，但同步服务器失败，请检查网络后重试。');
+    });
     setShowModal(false);
   };
 
@@ -793,43 +828,61 @@ function ClientsTab({
     return dt.toLocaleString('zh-CN', { hour12: false });
   };
 
-  const softDeleteClient = (client: Client) => {
+  const softDeleteClient = async (client: Client) => {
     if (!window.confirm(`确认删除客户「${client.name}」？\n删除后客户将移至"已删除客户"列表，可在管理端恢复或彻底删除。`)) return;
-    const updated = clients.map((c) =>
-      c.id === client.id
-        ? {
-            ...c,
-            deletedAt: new Date().toISOString(),
-            deletedByCoachCode: 'ADMIN',
-            deletedByCoachName: '管理员',
-          }
-        : c
-    );
-    onClientsChange(updated);
-    persistClientsToStores(updated);
+    try {
+      await softDeleteClientOnServer(client, 'ADMIN', '管理员');
+      const updated = clients.map((c) =>
+        c.id === client.id
+          ? {
+              ...c,
+              deletedAt: new Date().toISOString(),
+              deletedByCoachCode: 'ADMIN',
+              deletedByCoachName: '管理员',
+            }
+          : c
+      );
+      onClientsChange(updated);
+      persistClientsToStores(updated);
+    } catch (err) {
+      console.error('[AdminPortal] Failed to delete client:', err);
+      alert('删除客户失败，未保存到服务器。');
+    }
   };
 
-  const restoreClient = (client: Client) => {
+  const restoreClient = async (client: Client) => {
     if (!window.confirm(`确认恢复客户「${client.name}」？`)) return;
-    const updated = clients.map((c) =>
-      c.id === client.id
-        ? {
-            ...c,
-            deletedAt: undefined,
-            deletedByCoachCode: undefined,
-            deletedByCoachName: undefined,
-          }
-        : c
-    );
-    onClientsChange(updated);
-    persistClientsToStores(updated);
+    try {
+      await restoreClientOnServer(client);
+      const updated = clients.map((c) =>
+        c.id === client.id
+          ? {
+              ...c,
+              deletedAt: undefined,
+              deletedByCoachCode: undefined,
+              deletedByCoachName: undefined,
+            }
+          : c
+      );
+      onClientsChange(updated);
+      persistClientsToStores(updated);
+    } catch (err) {
+      console.error('[AdminPortal] Failed to restore client:', err);
+      alert('恢复客户失败，请稍后重试。');
+    }
   };
 
-  const hardDeleteClient = (client: Client) => {
+  const hardDeleteClient = async (client: Client) => {
     if (!window.confirm(`确认彻底删除客户「${client.name}」？\n此操作将删除所有训练与财务数据，且不可恢复。`)) return;
-    const updated = clients.filter((c) => c.id !== client.id);
-    onClientsChange(updated);
-    persistClientsToStores(updated);
+    try {
+      await hardDeleteClientOnServer(client);
+      const updated = clients.filter((c) => c.id !== client.id);
+      onClientsChange(updated);
+      persistClientsToStores(updated);
+    } catch (err) {
+      console.error('[AdminPortal] Failed to hard delete client:', err);
+      alert('彻底删除失败，未保存到服务器。');
+    }
   };
 
   const renderPlanSummary = (c: Client) => {
@@ -1287,6 +1340,7 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
   const [clients, setClients] = useState<Client[]>(() => loadMergedClientsFromStores());
   const [coaches, setCoaches] = useState<Coach[]>(() => getCoachesFromCache());
   const [coachesLoading, setCoachesLoading] = useState(true);
+  const isPersistingClientsRef = useRef(false);
 
   const refreshClientsFromServer = async () => {
     try {
@@ -1323,7 +1377,9 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
   }, [coaches, coachesLoading]);
 
   useEffect(() => {
+    isPersistingClientsRef.current = true;
     persistClientsToStores(clients);
+    isPersistingClientsRef.current = false;
   }, [clients]);
 
   useEffect(() => {
@@ -1334,7 +1390,10 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
 
   useEffect(() => {
     const syncFromStorage = () => setClients(loadMergedClientsFromStores());
-    const syncFromInTabEvent = () => setClients(loadMergedClientsFromStores());
+    const syncFromInTabEvent = () => {
+      if (isPersistingClientsRef.current) return;
+      setClients(loadMergedClientsFromStores());
+    };
     window.addEventListener('storage', syncFromStorage);
     window.addEventListener('fika:clients-updated', syncFromInTabEvent);
     return () => {

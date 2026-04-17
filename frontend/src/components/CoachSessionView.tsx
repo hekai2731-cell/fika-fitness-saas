@@ -121,10 +121,14 @@ function HRTopBar({
   hr,
   elapsedSecs,
   weightKg,
+  doneSets,
+  totalSets,
 }: {
   hr: ReturnType<typeof useHeartRate>;
   elapsedSecs: number;
   weightKg: number;
+  doneSets: number;
+  totalSets: number;
 }) {
   const zone = hr.currentZone;
   const bpm = hr.bpm;
@@ -150,10 +154,10 @@ function HRTopBar({
   return (
     <div style={{
       borderRadius: 28,
-      border: '1px solid rgba(216,221,236,0.72)',
-      background: 'rgba(255,255,255,0.5)',
-      backdropFilter: 'blur(10px)',
-      WebkitBackdropFilter: 'blur(10px)',
+      border: 'none',
+      background: 'transparent',
+      backdropFilter: 'none',
+      WebkitBackdropFilter: 'none',
       padding: 18,
       display: 'flex',
       flexDirection: 'column',
@@ -164,97 +168,145 @@ function HRTopBar({
       width: '100%',
       flex: 1,
     }}>
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <div
-          style={{
-            width: 300,
-            height: 300,
-            borderRadius: '50%',
-            background: `conic-gradient(${zoneColor} ${ringPct}%, #e2e6ef ${ringPct}% 100%)`,
-            display: 'grid',
-            placeItems: 'center',
-            transition: 'all .3s ease',
-            boxShadow: 'inset 0 0 0 1px rgba(143,153,181,.12)',
-          }}
-        >
-          <div
-            style={{
-              width: 228,
-              height: 228,
-              borderRadius: '50%',
-              background: 'radial-gradient(circle at 30% 22%, #ffffff 0%, #f4f6fc 92%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexDirection: 'column',
-              boxShadow: '0 14px 36px rgba(113,123,156,.12)',
-            }}
-          >
-            <div style={{ fontSize: 72, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.02em', color: '#111827', fontVariantNumeric: 'tabular-nums' }}>
-              {hasBpm ? bpm : '--'}
+      {hr.status !== 'connected' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
+
+          <div style={{ textAlign: 'center', padding: '20px 0 10px' }}>
+            <div style={{ fontSize: 13, color: 'rgba(100,116,139,0.9)', marginBottom: 12 }}>
+              心率带未连接
             </div>
-            <div style={{ marginTop: 6, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: '#636d84', fontWeight: 700 }}>
-              当前心率 / Current BPM
+            <button
+              onClick={hr.connect}
+              disabled={hr.status === 'connecting'}
+              style={{
+                padding: '8px 20px', borderRadius: 10,
+                background: 'rgba(91,99,215,0.12)',
+                border: '1px solid rgba(91,99,215,0.28)',
+                color: '#4f46e5', fontSize: 12, fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {hr.status === 'connecting' ? '连接中...' : '连接心率带'}
+            </button>
+          </div>
+
+          <div style={{ textAlign: 'center', padding: '10px 0' }}>
+            <div style={{ fontSize: 56, fontWeight: 900, fontFamily: 'monospace', color: '#0f172a', letterSpacing: '0.05em' }}>
+              {fmt(elapsedSecs)}
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(100,116,139,0.85)', letterSpacing: '.14em', marginTop: 4 }}>
+              训练时长
             </div>
           </div>
-        </div>
-      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <div style={{
-          borderRadius: 14,
-          border: '1px solid rgba(218,223,236,0.8)',
-          background: 'rgba(255,255,255,0.56)',
-          padding: '12px 14px',
-          backdropFilter: 'blur(8px)',
-        }}>
-          <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 900, color: '#4f56c8', fontVariantNumeric: 'tabular-nums' }}>{intensity}%</div>
-          <div style={{ marginTop: 4, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: '#6a7288', fontWeight: 700 }}>强度 / Intensity</div>
-        </div>
-        <div style={{
-          borderRadius: 14,
-          border: '1px solid rgba(218,223,236,0.8)',
-          background: 'rgba(255,255,255,0.56)',
-          padding: '12px 14px',
-          backdropFilter: 'blur(8px)',
-        }}>
-          <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 900, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{kcal.toFixed(1)}</div>
-          <div style={{ marginTop: 4, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: '#6a7288', fontWeight: 700 }}>实时消耗 / kcal</div>
-        </div>
-      </div>
-
-      <div style={{ borderRadius: 14, border: '1px solid rgba(218,223,236,0.8)', background: 'rgba(255,255,255,0.56)', padding: '10px 12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: zone ? zoneColor : '#4f56c8' }}>
-            {zone ? `Z${zone.zone} · ${zone.labelEn}` : '恢复 / Rest'}
+          <div style={{ padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(203,213,225,0.9)' }}>
+            <div style={{ fontSize: 10, color: 'rgba(100,116,139,0.88)', letterSpacing: '.1em', marginBottom: 8 }}>完成进度</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a' }}>
+              {doneSets} <span style={{ fontSize: 14, color: 'rgba(100,116,139,0.9)', fontWeight: 400 }}>/ {totalSets} 组</span>
+            </div>
+            <div style={{ marginTop: 8, height: 4, background: 'rgba(203,213,225,0.7)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${totalSets ? (doneSets / totalSets * 100) : 0}%`, background: '#FF6B35', borderRadius: 2, transition: 'width 0.5s' }} />
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>时长 {fmt(elapsedSecs)}</div>
-        </div>
-        <div style={{ marginTop: 6, fontSize: 11, color: '#64748b' }}>
-          平均 {stats?.avgBpm ?? '--'} · 最高 {stats?.maxBpm ?? '--'} · 最低 {stats?.minBpm ?? '--'}
-        </div>
-      </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        {hr.status === 'connected' ? (
-          <button onClick={hr.disconnect} style={{
-            fontSize: 12, padding: '7px 12px', borderRadius: 8,
-            border: '1px solid rgba(148,163,184,.42)',
-            background: 'rgba(255,255,255,.72)',
-            color: '#475569', cursor: 'pointer',
-          }}>断开心率带</button>
-        ) : (
-          <button onClick={hr.connect} disabled={hr.status === 'connecting' || hr.status === 'unsupported'} style={{
-            fontSize: 12, padding: '7px 12px', borderRadius: 8,
-            border: '1px solid rgba(124,58,237,.28)',
-            background: hr.status === 'connecting' ? 'rgba(226,232,240,.8)' : 'rgba(124,58,237,.12)',
-            color: hr.status === 'connecting' ? '#94a3b8' : '#6d28d9',
-            cursor: hr.status === 'connecting' ? 'not-allowed' : 'pointer',
-          }}>
-            {hr.status === 'connecting' ? '连接中...' : '连接心率带'}
-          </button>
-        )}
-      </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ fontSize: 10, color: 'rgba(100,116,139,0.88)', letterSpacing: '.1em', marginBottom: 6 }}>快速备注</div>
+            <textarea
+              placeholder="记录客户今日状态、动作问题..."
+              rows={4}
+              style={{
+                flex: 1, padding: '10px 12px', borderRadius: 10, resize: 'none',
+                background: 'rgba(255,255,255,0.62)',
+                border: '1px solid rgba(203,213,225,0.9)',
+                color: '#0f172a', fontSize: 12,
+                fontFamily: 'inherit', outline: 'none',
+              }}
+            />
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div
+              style={{
+                width: 300,
+                height: 300,
+                borderRadius: '50%',
+                background: `conic-gradient(${zoneColor} ${ringPct}%, #e2e6ef ${ringPct}% 100%)`,
+                display: 'grid',
+                placeItems: 'center',
+                transition: 'all .3s ease',
+                boxShadow: 'inset 0 0 0 1px rgba(143,153,181,.12)',
+              }}
+            >
+              <div
+                style={{
+                  width: 228,
+                  height: 228,
+                  borderRadius: '50%',
+                  background: 'radial-gradient(circle at 30% 22%, #ffffff 0%, #f4f6fc 92%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                  boxShadow: '0 14px 36px rgba(113,123,156,.12)',
+                }}
+              >
+                <div style={{ fontSize: 72, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.02em', color: '#111827', fontVariantNumeric: 'tabular-nums' }}>
+                  {hasBpm ? bpm : '--'}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: '#636d84', fontWeight: 700 }}>
+                  当前心率 / Current BPM
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{
+              borderRadius: 14,
+              border: '1px solid rgba(218,223,236,0.8)',
+              background: 'rgba(255,255,255,0.56)',
+              padding: '12px 14px',
+              backdropFilter: 'blur(8px)',
+            }}>
+              <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 900, color: '#4f56c8', fontVariantNumeric: 'tabular-nums' }}>{intensity}%</div>
+              <div style={{ marginTop: 4, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: '#6a7288', fontWeight: 700 }}>强度 / Intensity</div>
+            </div>
+            <div style={{
+              borderRadius: 14,
+              border: '1px solid rgba(218,223,236,0.8)',
+              background: 'rgba(255,255,255,0.56)',
+              padding: '12px 14px',
+              backdropFilter: 'blur(8px)',
+            }}>
+              <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 900, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{kcal.toFixed(1)}</div>
+              <div style={{ marginTop: 4, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: '#6a7288', fontWeight: 700 }}>实时消耗 / kcal</div>
+            </div>
+          </div>
+
+          <div style={{ borderRadius: 14, border: '1px solid rgba(218,223,236,0.8)', background: 'rgba(255,255,255,0.56)', padding: '10px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: zone ? zoneColor : '#4f56c8' }}>
+                {zone ? `Z${zone.zone} · ${zone.labelEn}` : '恢复 / Rest'}
+              </div>
+              <div style={{ fontSize: 11, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>时长 {fmt(elapsedSecs)}</div>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: '#64748b' }}>
+              平均 {stats?.avgBpm ?? '--'} · 最高 {stats?.maxBpm ?? '--'} · 最低 {stats?.minBpm ?? '--'}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={hr.disconnect} style={{
+              fontSize: 12, padding: '7px 12px', borderRadius: 8,
+              border: '1px solid rgba(148,163,184,.42)',
+              background: 'rgba(255,255,255,.72)',
+              color: '#475569', cursor: 'pointer',
+            }}>断开心率带</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -268,9 +320,6 @@ function SetRow({
   onToggle: () => void; onDelete: () => void;
   onUpdateWeight: (v: string) => void; onUpdateReps: (v: string) => void;
 }) {
-  const [showActualFields, setShowActualFields] = useState(false);
-  const [actualWeight, setActualWeight] = useState('');
-  const [actualSets, setActualSets] = useState('');
   const state = set.done ? 'done' : isCurrent ? 'current' : 'pending';
   const bg = state === 'done' ? 'rgba(34,197,94,0.08)' : state === 'current' ? 'rgba(91,99,215,0.14)' : 'rgba(255,255,255,0.68)';
   const border = state === 'done' ? 'rgba(34,197,94,0.26)' : state === 'current' ? 'rgba(91,99,215,0.45)' : 'rgba(203,213,225,0.9)';
@@ -349,67 +398,6 @@ function SetRow({
         transition: 'all 0.15s',
       }}>✓</button>
       </div>
-
-      {/* 实际重量和组数输入 */}
-      {showActualFields && (
-        <div style={{
-          marginLeft: 20, marginRight: 20, marginBottom: 10,
-          padding: '10px 12px', borderRadius: 10,
-          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
-          display: 'flex', gap: 12, alignItems: 'center',
-        }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.5)' }}>实际：</span>
-          <div style={{ display: 'flex', gap: 6, flex: 1, alignItems: 'center' }}>
-            <input
-              type="number"
-              value={actualWeight}
-              placeholder="重量"
-              onChange={e => setActualWeight(e.target.value)}
-              style={{
-                width: 58, height: 28, textAlign: 'center', fontSize: 12,
-                fontFamily: 'monospace', fontWeight: 600,
-                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,158,11,0.3)',
-                borderRadius: 6, color: '#fff', outline: 'none',
-              }}
-            />
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>kg ×</span>
-            <input
-              type="number"
-              value={actualSets}
-              placeholder="组"
-              onChange={e => setActualSets(e.target.value)}
-              style={{
-                width: 50, height: 28, textAlign: 'center', fontSize: 12,
-                fontFamily: 'monospace', fontWeight: 600,
-                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,158,11,0.3)',
-                borderRadius: 6, color: '#fff', outline: 'none',
-              }}
-            />
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>组</span>
-          </div>
-          <button
-            onClick={() => setShowActualFields(false)}
-            style={{
-              width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.06)',
-              border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 12,
-            }}
-          >×</button>
-        </div>
-      )}
-      {!showActualFields && (
-        <button
-          onClick={() => setShowActualFields(true)}
-          style={{
-            marginLeft: 20, marginRight: 20, marginBottom: 10,
-            width: 'calc(100% - 40px)', height: 28, borderRadius: 8,
-            background: 'rgba(245,158,11,0.16)', border: '1px solid rgba(217,119,6,0.35)',
-            color: '#92400e', fontSize: 10, fontWeight: 700,
-            cursor: 'pointer', transition: 'all 0.15s',
-          }}
-        >
-          📝 实际重量/组数
-        </button>
-      )}
     </>
   );
 }
@@ -462,22 +450,27 @@ function RestOverlay({ seconds, onSkip }: { seconds: number; onSkip: () => void 
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14,
     }}>
       <div style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', textTransform: 'uppercase', letterSpacing: '.2em' }}>组间休息</div>
-      <div style={{
-        fontSize: 'clamp(4rem,12vw,7rem)', fontWeight: 900,
-        fontFamily: 'monospace', color: '#a78bfa', lineHeight: 1,
-      }}>{left}</div>
-      {/* 环形进度 */}
-      <svg width="120" height="120" viewBox="0 0 120 120" style={{ position: 'absolute' }}>
-        <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(167,139,250,0.1)" strokeWidth="4" />
-        <circle cx="60" cy="60" r="54" fill="none" stroke="#7C3AED" strokeWidth="4"
-          strokeDasharray={`${2 * Math.PI * 54}`}
-          strokeDashoffset={`${2 * Math.PI * 54 * (1 - pct / 100)}`}
-          strokeLinecap="round"
-          style={{ transform: 'rotate(-90deg)', transformOrigin: '60px 60px', transition: 'stroke-dashoffset 0.9s linear' }}
-        />
-      </svg>
+      <div style={{ position: 'relative', width: 200, height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <svg width="200" height="200" viewBox="0 0 200 200" style={{ position: 'absolute', inset: 0 }}>
+          <circle cx="100" cy="100" r="88" fill="none" stroke="rgba(167,139,250,0.1)" strokeWidth="6" />
+          <circle cx="100" cy="100" r="88" fill="none" stroke="#FF6B35" strokeWidth="6"
+            strokeDasharray={`${2 * Math.PI * 88}`}
+            strokeDashoffset={`${2 * Math.PI * 88 * (1 - pct / 100)}`}
+            strokeLinecap="round"
+            style={{ transform: 'rotate(-90deg)', transformOrigin: '100px 100px', transition: 'stroke-dashoffset 0.9s linear' }}
+          />
+        </svg>
+        <div style={{ position: 'relative', textAlign: 'center' }}>
+          <div style={{ fontSize: 64, fontWeight: 900, fontFamily: 'monospace', color: '#FF8C42', lineHeight: 1 }}>
+            {left}
+          </div>
+          <div style={{ fontSize: 10, color: 'rgba(255,140,80,0.5)', letterSpacing: '.2em', marginTop: 4 }}>
+            组间休息
+          </div>
+        </div>
+      </div>
       <button onClick={onSkip} style={{
-        marginTop: 80, padding: '10px 28px', borderRadius: 14,
+        marginTop: 20, padding: '10px 28px', borderRadius: 14,
         border: '1px solid rgba(255,255,255,0.12)',
         background: 'rgba(255,255,255,0.06)',
         color: 'rgba(255,255,255,0.45)', fontSize: 12, cursor: 'pointer',
@@ -1270,6 +1263,12 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                 onClick={completeSet}
                 className={`sess-main-b ${mainBtnStateClass}`}
                 style={{
+                  background: curSetIdx === -1
+                    ? 'linear-gradient(135deg, #16a34a, #22c55e)'
+                    : 'linear-gradient(135deg, #FF6B35, #FF8C42)',
+                  boxShadow: curSetIdx === -1
+                    ? '0 4px 20px rgba(34,197,94,0.3)'
+                    : '0 4px 20px rgba(255,107,53,0.4)',
                   border: 'none', cursor: 'pointer',
                 }}
               >
@@ -1310,23 +1309,20 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
             )}
 
             {/* 取消课程按钮 */}
-            <button
-              onClick={handleCancelSession}
-              style={{
-                width: '100%', height: 36, borderRadius: 8,
-                background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.24)',
-                color: '#f87171', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                transition: 'all 0.15s',
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="9" y1="9" x2="15" y2="15" />
-                <line x1="15" y1="9" x2="9" y2="15" />
-              </svg>
-              取消课程 / Cancel Session
-            </button>
+            <div style={{ textAlign: 'center', marginTop: 4 }}>
+              <button
+                onClick={handleCancelSession}
+                style={{
+                  width: 'auto', height: 28, padding: '0 12px',
+                  background: 'transparent', border: 'none',
+                  color: 'rgba(248,113,113,0.35)', fontSize: 10, fontWeight: 500,
+                  marginTop: 6, alignSelf: 'center',
+                  cursor: 'pointer',
+                }}
+              >
+                取消课程
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1339,7 +1335,13 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
           background: 'rgba(255,255,255,0.34)',
           display: 'flex',
         }}>
-          <HRTopBar hr={hr} elapsedSecs={elapsed} weightKg={Number.isFinite(liveWeight) && liveWeight > 0 ? liveWeight : 65} />
+          <HRTopBar
+            hr={hr}
+            elapsedSecs={elapsed}
+            weightKg={Number.isFinite(liveWeight) && liveWeight > 0 ? liveWeight : 65}
+            doneSets={doneSets}
+            totalSets={totalSets}
+          />
         </div>
       </div>
 
