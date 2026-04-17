@@ -2152,7 +2152,7 @@ export function PlanningPage({
 
                   {/* 今日训练重点 */}
                   {selectedWeek && (
-                    <div style={{ marginBottom: 6, color: 'var(--s600)' }}>
+                    <div style={{ marginBottom: 10, color: 'var(--s600)' }}>
                       <div style={{ marginBottom: 4, fontWeight: 600, color: 'var(--s700)' }}>
                         🎯 今日训练重点
                       </div>
@@ -2177,6 +2177,105 @@ export function PlanningPage({
                       </div>
                     </div>
                   )}
+
+                  {/* ── 快速课前评估 ── */}
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(148,163,184,.25)' }}>
+                    <div style={{ fontWeight: 700, color: 'var(--s700)', marginBottom: 8, fontSize: 12 }}>⚡ 快速课前评估</div>
+
+                    {/* 恢复状态 */}
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--s500)', marginBottom: 4 }}>距上次训练恢复情况</div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {RECOVERY_OPTIONS.map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setPlanConfirmForm(prev => ({ ...prev, recoveryStatus: opt.value }))}
+                            style={{
+                              padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                              border: planConfirmForm.recoveryStatus === opt.value ? '1.5px solid var(--p)' : '1px solid var(--s200)',
+                              background: planConfirmForm.recoveryStatus === opt.value ? 'var(--p2)' : '#fff',
+                              color: planConfirmForm.recoveryStatus === opt.value ? 'var(--p)' : 'var(--s600)',
+                              transition: 'all .15s',
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 今日状态 */}
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--s500)', marginBottom: 4 }}>今日状态</div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {TODAY_STATUS_OPTIONS.map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setPlanConfirmForm(prev => ({ ...prev, todayStatus: opt.value }))}
+                            style={{
+                              padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                              border: planConfirmForm.todayStatus === opt.value ? '1.5px solid var(--p)' : '1px solid var(--s200)',
+                              background: planConfirmForm.todayStatus === opt.value ? 'var(--p2)' : '#fff',
+                              color: planConfirmForm.todayStatus === opt.value ? 'var(--p)' : 'var(--s600)',
+                              transition: 'all .15s',
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 不适区域 */}
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, color: 'var(--s500)', marginBottom: 4 }}>不适区域（可多选）</div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {DISCOMFORT_OPTIONS.map(opt => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => {
+                              setPlanConfirmForm(prev => {
+                                const cur = prev.discomfortAreas || [];
+                                if (opt === '无不适') return { ...prev, discomfortAreas: ['无不适'] };
+                                const next = cur.includes(opt)
+                                  ? cur.filter(x => x !== opt)
+                                  : [...cur.filter(x => x !== '无不适'), opt];
+                                return { ...prev, discomfortAreas: next.length ? next : ['无不适'] };
+                              });
+                            }}
+                            style={{
+                              padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                              border: (planConfirmForm.discomfortAreas || []).includes(opt) ? '1.5px solid #ef4444' : '1px solid var(--s200)',
+                              background: (planConfirmForm.discomfortAreas || []).includes(opt) ? '#fee2e2' : '#fff',
+                              color: (planConfirmForm.discomfortAreas || []).includes(opt) ? '#b91c1c' : 'var(--s600)',
+                              transition: 'all .15s',
+                            }}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 一键生成按钮 */}
+                    <button
+                      type="button"
+                      disabled={anyLoading || !selectedDay}
+                      onClick={openDayTierPicker}
+                      style={{
+                        width: '100%', padding: '8px 0', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                        border: 'none', cursor: anyLoading || !selectedDay ? 'not-allowed' : 'pointer',
+                        background: anyLoading || !selectedDay ? 'var(--s200)' : 'linear-gradient(135deg, #5d66ed, #7c3aed)',
+                        color: anyLoading || !selectedDay ? 'var(--s400)' : '#fff',
+                        transition: 'all .2s',
+                      }}
+                    >
+                      {loadingDay ? '生成中...' : '⚡ 根据以上状态生成训练'}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -2764,161 +2863,27 @@ export function PlanningPage({
         </div>
       )}
 
-      {/* 预览弹窗 */}
+      {/* AI 课程审核弹窗 */}
       {aiPreviewMode && aiPreviewData && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
+        <AiReviewModal
+          mode={aiPreviewMode}
+          data={aiPreviewData}
+          onClose={() => setGeneratedPreview({ type: null, data: null })}
+          onConfirm={(updatedData) => {
+            try {
+              if (aiPreviewMode === 'day') {
+                // 把教练修改后的数据写回 aiPreviewData 再保存
+                (aiPreviewData as any).modules = updatedData.modules;
+                (aiPreviewData as any).session_name = updatedData.session_name;
+                confirmSaveDayPlanFromPreview();
+              } else if (aiPreviewMode === 'week') applyWeekPlanPreview(aiPreviewData);
+              else if (aiPreviewMode === 'full') confirmSaveFullPlanFromPreview();
+            } catch (e: any) {
+              console.error('[PlanningPage] 确认应用失败:', e);
+              setError('应用失败：' + (e?.message || String(e)));
+            }
           }}
-          onClick={() => setGeneratedPreview({ type: null, data: null })}
-        >
-          <div
-            style={{
-              background: 'white',
-              borderRadius: 12,
-              padding: 24,
-              maxWidth: 800,
-              maxHeight: '80vh',
-              overflow: 'auto',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: '#202737' }}>
-              {aiPreviewMode === 'day' && '日计划预览'}
-              {aiPreviewMode === 'week' && '周计划预览'}
-              {aiPreviewMode === 'full' && '完整规划预览'}
-            </div>
-
-            {/* 日计划预览内容 */}
-            {aiPreviewMode === 'day' && aiPreviewData && (
-              <div>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>课程名称</div>
-                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>{aiPreviewData.session_name || '未命名'}</div>
-                </div>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>模块数</div>
-                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>{(aiPreviewData.modules || []).length} 个</div>
-                </div>
-                {(aiPreviewData.modules || []).map((mod: any, idx: number) => (
-                  <div key={idx} style={{ marginBottom: 12, padding: 10, background: '#f5f5f5', borderRadius: 8 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#202737' }}>{mod.module_name}</div>
-                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                      {(mod.exercises || []).length} 个动作
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 周计划预览内容 */}
-            {aiPreviewMode === 'week' && aiPreviewData && (
-              <div>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>周主题</div>
-                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>
-                    {aiPreviewData.week_theme ? (() => {
-                      const theme = aiPreviewData.week_theme;
-                      if (typeof theme === 'object' && theme !== null) {
-                        return Object.values(theme).map((v: any) => v?.day_focus || '').filter(Boolean).join(' · ') || '主题信息';
-                      }
-                      return String(theme).substring(0, 150);
-                    })() : '未提供'}
-                  </div>
-                </div>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>包含训练日</div>
-                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>
-                    {(aiPreviewData.days || []).length} 天
-                  </div>
-                </div>
-                {(aiPreviewData.days || []).map((d: any, idx: number) => (
-                  <div key={idx} style={{ marginBottom: 8, padding: 8, background: '#f5f5f5', borderRadius: 6 }}>
-                    <div style={{ fontWeight: 600, fontSize: 12, color: '#202737' }}>
-                      {d.session_name || `Day ${idx + 1}`}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
-                      {d.day_focus || '通用'}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 完整规划预览内容 */}
-            {aiPreviewMode === 'full' && aiPreviewData && (
-              <div>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>Block 数量</div>
-                  <div style={{ fontSize: 14, marginTop: 4, color: '#202737' }}>{(aiPreviewData.blocks || []).length} 个</div>
-                </div>
-                {(aiPreviewData.blocks || []).map((block: any, idx: number) => (
-                  <div key={idx} style={{ marginBottom: 12, padding: 10, background: '#f5f5f5', borderRadius: 8 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#202737' }}>{block.title}</div>
-                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                      {(block.training_weeks || []).length} 周
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 操作按钮 */}
-            <div style={{ display: 'flex', gap: 12, marginTop: 24, justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setGeneratedPreview({ type: null, data: null })}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: 6,
-                  border: '1px solid #ddd',
-                  background: '#f5f5f5',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: '#666',
-                }}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  try {
-                    if (aiPreviewMode === 'day') confirmSaveDayPlanFromPreview();
-                    else if (aiPreviewMode === 'week') applyWeekPlanPreview(aiPreviewData);
-                    else if (aiPreviewMode === 'full') confirmSaveFullPlanFromPreview();
-                  } catch (e: any) {
-                    console.error('[PlanningPage] 确认应用失败:', e);
-                    setError('应用失败：' + (e?.message || String(e)));
-                  }
-                }}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: 6,
-                  border: 'none',
-                  background: '#5d66ed',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
-              >
-                确认应用
-              </button>
-            </div>
-          </div>
-        </div>
+        />
       )}
 
       {publishConfirmOpen && (
@@ -3844,6 +3809,212 @@ export function PlanningPage({
           }
         }
       `}</style>
+    </div>
+  );
+}
+
+// ─── AI 课程审核弹窗 ──────────────────────────────────────────────────────────
+const MODULE_COLORS = [
+  { bg: 'rgba(237,233,254,.6)', border: '#a78bfa', label: '#7c3aed' },
+  { bg: 'rgba(209,250,229,.6)', border: '#6ee7b7', label: '#065f46' },
+  { bg: 'rgba(255,237,213,.6)', border: '#fcd34d', label: '#92400e' },
+  { bg: 'rgba(219,234,254,.6)', border: '#93c5fd', label: '#1e40af' },
+  { bg: 'rgba(252,231,243,.6)', border: '#f9a8d4', label: '#9d174d' },
+];
+
+function AiReviewModal({
+  mode, data, onClose, onConfirm,
+}: {
+  mode: 'day' | 'week' | 'full';
+  data: any;
+  onClose: () => void;
+  onConfirm: (updated: any) => void;
+}) {
+  const [modules, setModules] = useState<any[]>(() =>
+    Array.isArray(data?.modules) ? data.modules.map((m: any) => ({
+      ...m,
+      _confirmed: false,
+      exercises: (m.exercises || []).map((ex: any) => ({ ...ex })),
+    })) : []
+  );
+  const [sessionName, setSessionName] = useState(data?.session_name || '');
+  const confirmed = modules.filter(m => m._confirmed).length;
+  const total = modules.length;
+  const allDone = total > 0 && confirmed === total;
+
+  const toggleConfirm = (idx: number) => {
+    setModules(prev => prev.map((m, i) => i === idx ? { ...m, _confirmed: !m._confirmed } : m));
+  };
+
+  const updateExercise = (modIdx: number, exIdx: number, field: string, value: any) => {
+    setModules(prev => prev.map((m, i) => i !== modIdx ? m : {
+      ...m,
+      exercises: m.exercises.map((ex: any, j: number) => j !== exIdx ? ex : { ...ex, [field]: value }),
+    }));
+  };
+
+  const deleteExercise = (modIdx: number, exIdx: number) => {
+    setModules(prev => prev.map((m, i) => i !== modIdx ? m : {
+      ...m,
+      exercises: m.exercises.filter((_: any, j: number) => j !== exIdx),
+    }));
+  };
+
+  // 周/全局预览（只读展示，不做动作级编辑）
+  if (mode !== 'day') {
+    const items = mode === 'week' ? (data?.days || []) : (data?.blocks || []);
+    return (
+      <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999 }} onClick={onClose}>
+        <div style={{ background:'#fff', borderRadius:14, padding:24, maxWidth:600, width:'90%', maxHeight:'80vh', overflow:'auto', boxShadow:'0 20px 60px rgba(0,0,0,.3)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ fontSize:17, fontWeight:700, color:'#202737', marginBottom:16 }}>
+            {mode === 'week' ? '周计划预览' : '完整规划预览'}
+          </div>
+          {items.map((item: any, i: number) => (
+            <div key={i} style={{ padding:12, borderRadius:10, border:'1px solid #e2e8f0', marginBottom:8, background:'#f8fafc' }}>
+              <div style={{ fontWeight:600, fontSize:13, color:'#202737' }}>{item.session_name || item.title || `项目 ${i+1}`}</div>
+              <div style={{ fontSize:11, color:'#64748b', marginTop:3 }}>{item.day_focus || `${(item.training_weeks||[]).length} 周`}</div>
+            </div>
+          ))}
+          <div style={{ display:'flex', gap:10, marginTop:20, justifyContent:'flex-end' }}>
+            <button onClick={onClose} style={{ padding:'8px 16px', borderRadius:8, border:'1px solid #e2e8f0', background:'#f1f5f9', fontSize:13, fontWeight:600, color:'#64748b', cursor:'pointer' }}>取消</button>
+            <button onClick={() => onConfirm(data)} style={{ padding:'8px 18px', borderRadius:8, border:'none', background:'#5d66ed', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>确认应用</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 日计划审核界面（完整版）
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(15,20,40,.6)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999 }} onClick={onClose}>
+      <div style={{ background:'#f8fafc', borderRadius:16, width:'min(860px,96vw)', maxHeight:'92vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 24px 80px rgba(0,0,0,.35)' }} onClick={e => e.stopPropagation()}>
+
+        {/* 顶部 header */}
+        <div style={{ padding:'16px 20px', background:'#fff', borderBottom:'1px solid #e2e8f0', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+          <div style={{ flex:1 }}>
+            <input
+              value={sessionName}
+              onChange={e => setSessionName(e.target.value)}
+              style={{ fontSize:16, fontWeight:700, color:'#202737', border:'none', outline:'none', background:'transparent', width:'100%' }}
+              placeholder="课程名称"
+            />
+            <div style={{ fontSize:11, color:'#94a3b8', marginTop:2 }}>AI 课程草稿 · 教练审核中</div>
+          </div>
+          {/* 进度条 */}
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ width:120, height:6, background:'#e2e8f0', borderRadius:3, overflow:'hidden' }}>
+              <div style={{ height:'100%', background: allDone ? '#10b981' : '#5d66ed', borderRadius:3, width:`${total ? (confirmed/total)*100 : 0}%`, transition:'width .3s' }} />
+            </div>
+            <span style={{ fontSize:12, color:'#64748b', whiteSpace:'nowrap' }}>{confirmed}/{total} 已确认</span>
+          </div>
+        </div>
+
+        {/* 内容区 */}
+        <div style={{ flex:1, overflow:'auto', padding:'16px 20px', display:'flex', flexDirection:'column', gap:12 }}>
+          {modules.map((mod, modIdx) => {
+            const col = MODULE_COLORS[modIdx % MODULE_COLORS.length];
+            const isWarning = mod._ai_flag === 'compensation'; // 上节课有代偿时AI可标记
+            return (
+              <div key={modIdx} style={{
+                border: isWarning ? '1.5px solid #f87171' : `1px solid ${col.border}`,
+                borderRadius:12, overflow:'hidden',
+                background: isWarning ? 'rgba(254,226,226,.4)' : col.bg,
+              }}>
+                {/* 模块头 */}
+                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px', borderBottom:`1px solid ${col.border}40` }}>
+                  <div style={{ flex:1 }}>
+                    <span style={{ fontSize:13, fontWeight:700, color: col.label }}>{mod.module_name}</span>
+                    <span style={{ fontSize:11, color:'#94a3b8', marginLeft:8 }}>{mod.module_duration || ''} · {mod.format || ''}</span>
+                  </div>
+                  {isWarning && (
+                    <span style={{ fontSize:11, padding:'2px 8px', borderRadius:6, background:'#fee2e2', color:'#b91c1c', fontWeight:600 }}>⚠ 上次代偿</span>
+                  )}
+                  <button
+                    onClick={() => toggleConfirm(modIdx)}
+                    style={{
+                      padding:'4px 12px', borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer',
+                      border: mod._confirmed ? '1px solid #10b981' : '1px solid #cbd5e1',
+                      background: mod._confirmed ? '#ecfdf5' : '#fff',
+                      color: mod._confirmed ? '#065f46' : '#64748b',
+                      transition:'all .15s',
+                    }}
+                  >
+                    {mod._confirmed ? '✓ 已确认' : '确认'}
+                  </button>
+                </div>
+
+                {/* 动作列表 */}
+                <div style={{ padding:'8px 14px', display:'flex', flexDirection:'column', gap:6 }}>
+                  {(mod.exercises || []).map((ex: any, exIdx: number) => (
+                    <div key={exIdx} style={{ background:'rgba(255,255,255,.8)', borderRadius:8, padding:'8px 12px', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                      {ex.group_tag && (
+                        <span style={{ fontSize:9, fontWeight:800, padding:'2px 5px', borderRadius:4, background:`${col.label}18`, color:col.label, flexShrink:0 }}>{ex.group_tag}</span>
+                      )}
+                      {/* 动作名 */}
+                      <input
+                        value={ex.name}
+                        onChange={e => updateExercise(modIdx, exIdx, 'name', e.target.value)}
+                        style={{ flex:2, minWidth:120, fontSize:13, fontWeight:600, border:'none', outline:'none', background:'transparent', color:'#202737' }}
+                      />
+                      {/* 组数 */}
+                      <div style={{ display:'flex', alignItems:'center', gap:3, flexShrink:0 }}>
+                        <button onClick={() => updateExercise(modIdx, exIdx, 'sets', Math.max(1, (ex.sets||3)-1))} style={{ width:22, height:22, borderRadius:4, border:'1px solid #e2e8f0', background:'#f1f5f9', cursor:'pointer', fontSize:12 }}>-</button>
+                        <span style={{ fontSize:13, fontWeight:600, minWidth:18, textAlign:'center' }}>{ex.sets||3}</span>
+                        <button onClick={() => updateExercise(modIdx, exIdx, 'sets', (ex.sets||3)+1)} style={{ width:22, height:22, borderRadius:4, border:'1px solid #e2e8f0', background:'#f1f5f9', cursor:'pointer', fontSize:12 }}>+</button>
+                        <span style={{ fontSize:11, color:'#94a3b8' }}>组</span>
+                      </div>
+                      {/* 次数 */}
+                      <input
+                        value={ex.reps}
+                        onChange={e => updateExercise(modIdx, exIdx, 'reps', e.target.value)}
+                        style={{ width:54, fontSize:12, textAlign:'center', border:'1px solid #e2e8f0', borderRadius:6, padding:'3px 4px', background:'#f8fafc', color:'#202737' }}
+                        placeholder="10次"
+                      />
+                      {/* 节奏标签 */}
+                      {ex.rhythm && (
+                        <span style={{ fontSize:10, padding:'2px 6px', borderRadius:4, background:'#f1f5f9', color:'#5d66ed', fontWeight:700, flexShrink:0 }}>{ex.rhythm}</span>
+                      )}
+                      {/* Cue提示 */}
+                      {ex.cue && (
+                        <span style={{ fontSize:11, color:'#7c3aed', flex:3, minWidth:80, fontStyle:'italic' }}>"{ex.cue}"</span>
+                      )}
+                      {/* 删除 */}
+                      <button onClick={() => deleteExercise(modIdx, exIdx)} style={{ width:20, height:20, borderRadius:4, border:'none', background:'transparent', color:'#cbd5e1', cursor:'pointer', fontSize:14, lineHeight:1, flexShrink:0 }}>✕</button>
+                    </div>
+                  ))}
+
+                  {/* 强制动作提示 */}
+                  {mod._forced && (
+                    <div style={{ fontSize:11, color:'#92400e', padding:'6px 10px', borderRadius:6, background:'rgba(252,211,77,.2)', border:'1px solid #fcd34d' }}>
+                      ⚠ 强制动作：{mod._forced_reason || '此模块不可删除'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 底部操作栏 */}
+        <div style={{ padding:'14px 20px', background:'#fff', borderTop:'1px solid #e2e8f0', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+          <div style={{ fontSize:12, color:'#94a3b8', flex:1 }}>
+            {allDone ? '✓ 所有模块已确认，可以保存' : `还有 ${total - confirmed} 个模块待确认`}
+          </div>
+          <button onClick={onClose} style={{ padding:'8px 16px', borderRadius:8, border:'1px solid #e2e8f0', background:'#f1f5f9', fontSize:13, fontWeight:600, color:'#64748b', cursor:'pointer' }}>取消</button>
+          <button
+            disabled={!allDone}
+            onClick={() => onConfirm({ session_name: sessionName, modules })}
+            style={{
+              padding:'8px 20px', borderRadius:8, border:'none', fontSize:13, fontWeight:600, cursor: allDone ? 'pointer' : 'not-allowed',
+              background: allDone ? '#5d66ed' : '#e2e8f0',
+              color: allDone ? '#fff' : '#94a3b8',
+              transition:'all .2s',
+            }}
+          >
+            确认保存课程
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

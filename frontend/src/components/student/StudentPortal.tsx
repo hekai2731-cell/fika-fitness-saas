@@ -690,10 +690,67 @@ function ProgressTab({ client }: { client: Client }) {
   const prev = wData.slice(-2, -1)[0] || {};
   const weightDelta = latest.weight && prev.weight ? +(latest.weight - prev.weight).toFixed(1) : null;
   const bfDelta = latest.bf && prev.bf ? +(latest.bf - prev.bf).toFixed(1) : null;
+  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  const isProduction = window.location.hostname !== 'localhost';
+  const apiBase = isProduction ? '' : ((import.meta as any).env?.VITE_API_BASE_URL || '');
+  const apiUrl = (path: string) => (apiBase ? String(apiBase).replace(/\/$/, '') + path : path);
+
+  // 计算平均RPE趋势
+  const recentRpes = sessions.slice(-6).map((s: any) => s.rpe || 0).filter(Boolean);
+  const avgRpe = recentRpes.length ? +(recentRpes.reduce((a: number, b: number) => a + b, 0) / recentRpes.length).toFixed(1) : null;
+  const rpeTrend = recentRpes.length >= 2
+    ? recentRpes[recentRpes.length - 1] - recentRpes[0]
+    : 0;
+
+  // 训练阶段信息
+  const blocks = (client as any).blocks || [];
+  const currentBlock = blocks[blocks.length - 1];
+
+  // 生成AI进度报告
+  const generateAiReport = async () => {
+    setLoadingReport(true);
+    setAiReport(null);
+    try {
+      const prompt = `你是FiKA Fitness的教练助手。请根据以下客户训练数据，用简洁温暖的中文写一段个性化进度报告（150字以内），告诉客户：这段时间练了什么、哪里进步了、下一步的重点是什么。语气要鼓励但专业，像教练在课后跟客户说话一样自然。
+
+客户档位：${tierLabel(client.tier)}
+总训练节数：${sessions.length}
+当前训练阶段：${currentBlock?.title || '训练中'}
+平均RPE：${avgRpe || '暂无数据'}
+近期RPE趋势：${rpeTrend > 1 ? '疲劳积累' : rpeTrend < -1 ? '恢复良好' : '相对稳定'}
+体重变化：${weightDelta !== null ? `${weightDelta > 0 ? '+' : ''}${weightDelta}kg` : '暂无数据'}
+体脂变化：${bfDelta !== null ? `${bfDelta > 0 ? '+' : ''}${bfDelta}%` : '暂无数据'}
+训练目标：${(client as any).fitness_goal || '综合体能提升'}
+
+只输出报告正文，不要标题，不要前缀。`;
+
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 300,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const json = await resp.json();
+      const text = json?.content?.[0]?.text || '';
+      setAiReport(text || '报告生成中，请稍后重试。');
+    } catch {
+      setAiReport('网络错误，请稍后重试。');
+    } finally {
+      setLoadingReport(false);
+    }
+  };
 
   return (
     <div>
-      <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-.01em', marginBottom: 14 }}>我的进步</div>
+      <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-.01em', marginBottom: 4 }}>我的进步</div>
+      <div style={{ fontSize: 11, color: 'var(--s400)', marginBottom: 16, letterSpacing: '.05em' }}>
+        {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' })} · 进度报告
+      </div>
 
       {/* 四格数据 */}
       <div className="stu-stat-grid">
@@ -705,8 +762,7 @@ function ProgressTab({ client }: { client: Client }) {
           </div>
           {weightDelta !== null && (
             <div className="delta" style={{ color: weightDelta < 0 ? 'var(--g)' : 'var(--r)' }}>
-              {weightDelta > 0 ? '+' : ''}
-              {weightDelta} kg
+              {weightDelta > 0 ? '+' : ''}{weightDelta} kg
             </div>
           )}
         </div>
@@ -718,8 +774,7 @@ function ProgressTab({ client }: { client: Client }) {
           </div>
           {bfDelta !== null && (
             <div className="delta" style={{ color: bfDelta < 0 ? 'var(--g)' : 'var(--r)' }}>
-              {bfDelta > 0 ? '+' : ''}
-              {bfDelta}%
+              {bfDelta > 0 ? '+' : ''}{bfDelta}%
             </div>
           )}
         </div>
@@ -728,45 +783,60 @@ function ProgressTab({ client }: { client: Client }) {
           <div className="val">{sessions.length}</div>
         </div>
         <div className="card-sm stu-stat">
-          <div className="lbl">本周出勤</div>
-          <div className="val">
-            {latest.attendance || 0}
-            <span style={{ fontSize: 13, color: 'var(--s400)' }}> 节</span>
+          <div className="lbl">平均RPE</div>
+          <div className="val" style={{ color: avgRpe && avgRpe >= 8 ? 'var(--r)' : avgRpe && avgRpe <= 4 ? 'var(--g)' : 'var(--p)' }}>
+            {avgRpe || '—'}
           </div>
+          {rpeTrend !== 0 && avgRpe && (
+            <div className="delta" style={{ color: rpeTrend > 0 ? 'var(--r)' : 'var(--g)' }}>
+              {rpeTrend > 0 ? '↑ 累积' : '↓ 恢复'}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* 体重折线图（用 bar 模拟） */}
-      {wData.length > 1 ? (
-        <div className="card-sm" style={{ padding: 16, marginTop: 4 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>体重变化趋势</div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 80 }}>
-            {wData.slice(-8).map((w, i) => {
-              const vals = wData.map((d) => d.weight || 0).filter(Boolean);
-              const maxW = Math.max(...vals);
-              const minW = Math.min(...vals);
-              const h = maxW > minW ? Math.round(((w.weight! - minW) / (maxW - minW)) * 60) + 10 : 40;
+      {/* 训练阶段进度条 */}
+      {currentBlock && (
+        <div className="card-sm" style={{ padding: 14, marginTop: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>训练阶段</div>
+            <span style={{ fontSize: 11, color: 'var(--p)', fontWeight: 600 }}>{currentBlock.title || '当前阶段'}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 0 }}>
+            {blocks.map((b: any, i: number) => {
+              const isActive = i === blocks.length - 1;
+              const isDone = i < blocks.length - 1;
               return (
-                <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                  <div style={{ width: '100%', background: 'var(--p)', borderRadius: '4px 4px 0 0', height: h, opacity: 0.7 }} />
-                  <div style={{ fontSize: 8, color: 'var(--s400)' }}>{w.weight || '—'}</div>
+                <div key={i} style={{
+                  flex: 1,
+                  textAlign: 'center',
+                  padding: '6px 4px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  borderRadius: i === 0 ? '6px 0 0 6px' : i === blocks.length - 1 ? '0 6px 6px 0' : 0,
+                  border: '1px solid',
+                  borderColor: isActive ? 'var(--p)' : isDone ? 'var(--g)' : 'var(--s200)',
+                  background: isActive ? 'var(--p2)' : isDone ? 'var(--g2)' : 'var(--s50)',
+                  color: isActive ? 'var(--p)' : isDone ? '#065f46' : 'var(--s400)',
+                  borderLeft: i > 0 ? 'none' : undefined,
+                }}>
+                  {isDone ? '✓ ' : isActive ? '▶ ' : ''}{b.title?.replace('期', '') || `B${i+1}`}
                 </div>
               );
             })}
           </div>
         </div>
-      ) : (
-        <div className="card-sm" style={{ padding: 16, marginTop: 4, color: 'var(--s400)', fontSize: 12, textAlign: 'center' }}>
-          数据积累中，继续打卡 💪
-        </div>
       )}
 
-      {/* RPE 柱状 */}
+      {/* RPE 趋势图 */}
       {sessions.length > 0 && (
         <div className="card-sm" style={{ padding: 16, marginTop: 10 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>RPE 强度变化</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>训练强度趋势</div>
+            <div style={{ fontSize: 10, color: 'var(--s400)' }}>近 {Math.min(sessions.length, 10)} 节课</div>
+          </div>
           <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 60 }}>
-            {sessions.slice(-10).map((s, i) => {
+            {sessions.slice(-10).map((s: any, i: number) => {
               const rpe = s.rpe || 5;
               const h = Math.round((rpe / 10) * 50) + 4;
               const color = rpe >= 8 ? 'var(--r)' : rpe <= 4 ? 'var(--g)' : 'var(--p)';
@@ -778,6 +848,53 @@ function ProgressTab({ client }: { client: Client }) {
               );
             })}
           </div>
+          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+            {[['var(--g)', 'RPE ≤4 轻松'], ['var(--p)', 'RPE 5-7 适中'], ['var(--r)', 'RPE ≥8 高强度']].map(([c, l]) => (
+              <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
+                <span style={{ fontSize: 9, color: 'var(--s400)' }}>{l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI 进度报告 */}
+      <div className="card-sm" style={{ padding: 16, marginTop: 10, border: '1px solid var(--p3)', background: 'var(--p2)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: aiReport ? 12 : 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--p)' }}>本阶段进展报告</div>
+          <button
+            onClick={generateAiReport}
+            disabled={loadingReport || sessions.length === 0}
+            style={{
+              padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: loadingReport || sessions.length === 0 ? 'not-allowed' : 'pointer',
+              border: '1px solid var(--p3)', background: loadingReport ? 'var(--p3)' : 'var(--p)', color: '#fff',
+              transition: 'all .2s',
+            }}
+          >
+            {loadingReport ? '生成中...' : aiReport ? '重新生成' : '✨ AI 生成报告'}
+          </button>
+        </div>
+        {aiReport && (
+          <div style={{ fontSize: 13, color: 'var(--s700)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{aiReport}</div>
+        )}
+        {!aiReport && !loadingReport && sessions.length > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--s400)', marginTop: 8 }}>点击右上角按钮，AI 为你生成个性化进展总结</div>
+        )}
+        {sessions.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--s400)', marginTop: 8 }}>完成第一节课后即可生成报告</div>
+        )}
+        {loadingReport && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <div className="dots"><span /><span /><span /></div>
+            <span style={{ fontSize: 12, color: 'var(--s400)' }}>正在分析你的训练数据...</span>
+          </div>
+        )}
+      </div>
+
+      {sessions.length === 0 && (
+        <div className="card-sm" style={{ padding: 20, marginTop: 10, textAlign: 'center', color: 'var(--s400)', fontSize: 12 }}>
+          数据积累中，继续打卡 💪
         </div>
       )}
 
