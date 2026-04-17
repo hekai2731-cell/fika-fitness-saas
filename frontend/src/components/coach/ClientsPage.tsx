@@ -9,7 +9,6 @@ import { getClientsFromCache, saveClient as saveClientAsync } from '@/lib/store'
 type MembershipLevel = 'standard' | 'advanced' | 'professional' | 'elite';
 
 type GoalType = NonNullable<Client['goal_type']>;
-type InjuryLevel = NonNullable<NonNullable<Client['injury_detail']>['level']>;
 
 function initials(name: string) {
   const s = (name || '').trim();
@@ -59,12 +58,6 @@ const goalTypeOptions: Array<{ value: GoalType; label: string }> = [
   { value: 'rehabilitation', label: '功能性康复' },
 ];
 
-const injuryLevelOptions: Array<{ value: InjuryLevel; label: string }> = [
-  { value: 'mild', label: '轻度' },
-  { value: 'moderate', label: '中度' },
-  { value: 'avoid', label: '需回避' },
-];
-
 const tierStandardMap: Record<MembershipLevel, { bf: string; rhr: string; strength: string }> = {
   standard: { bf: '男 15-22% / 女 23-30%', rhr: '男 ≤ 68 / 女 ≤ 72', strength: '深蹲≥0.8xBW, 硬拉≥1.0xBW' },
   advanced: { bf: '男 12-19% / 女 20-27%', rhr: '男 ≤ 65 / 女 ≤ 70', strength: '深蹲≥1.0xBW, 硬拉≥1.2xBW' },
@@ -87,6 +80,8 @@ const dimMaxMap = {
   recovery: 20,
   execution: 15,
 } as const;
+
+const isKineticChain = (level?: string) => level === 'professional' || level === 'elite';
 
 function toNum(input: string): number | undefined {
   const n = Number(input);
@@ -314,11 +309,9 @@ export function ClientsPage({
     persistClient({ ...activeClient, goal_type: goalType, goal: label || activeClient.goal } as Client);
   };
 
-  const updateInjuryField = (patch: Partial<NonNullable<Client['injury_detail']>>) => {
+  const updateClientField = (patch: Partial<Client>) => {
     if (!activeClient) return;
-    const nextInjury = { ...(activeClient.injury_detail || {}), ...patch };
-    const text = [nextInjury.area || '', nextInjury.level || '', nextInjury.forbidden_moves || ''].filter(Boolean).join(' / ');
-    persistClient({ ...activeClient, injury_detail: nextInjury, injury: text || activeClient.injury } as Client);
+    persistClient({ ...activeClient, ...patch } as Client);
   };
 
   const addAssessmentRecord = () => {
@@ -893,51 +886,236 @@ export function ClientsPage({
           <div className="section-cap" style={{ marginTop: 18 }}>• ASSESSMENT & QUESTIONNAIRE（问卷筛查）</div>
           <div className="assessment-card">
             <div className="assessment-grid">
-              <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
-                <span>目标 / Goal</span>
-                <select
-                  className="assessment-input"
-                  value={activeClient.goal_type || 'muscle_gain'}
-                  onChange={(e) => updateGoalType(e.target.value as GoalType)}
-                >
-                  {goalTypeOptions.map((g) => (
-                    <option key={g.value} value={g.value}>{g.label}</option>
-                  ))}
-                </select>
-              </div>
+              {isKineticChain(activeClient.membershipLevel) ? (
+                <>
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>当前训练阶段</span>
+                    <select
+                      className="assessment-input"
+                      value={(activeClient as any).trainingPhase || ''}
+                      onChange={(e) => updateClientField({ trainingPhase: e.target.value as Client['trainingPhase'] })}
+                    >
+                      <option value="">未设置</option>
+                      <option value="neural_reset">神经重置期</option>
+                      <option value="activation">激活建立期</option>
+                      <option value="loading">力量加载期</option>
+                      <option value="integration">整合期</option>
+                    </select>
+                  </div>
 
-              <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
-                <span>受伤部位</span>
-                <input
-                  className="assessment-input"
-                  value={activeClient.injury_detail?.area || ''}
-                  onChange={(e) => updateInjuryField({ area: e.target.value })}
-                  placeholder="如：腰椎、肩峰"
-                />
-              </div>
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>主要代偿模式</span>
+                    <input
+                      className="assessment-input"
+                      value={(activeClient as any).compensationPattern || ''}
+                      onChange={(e) => updateClientField({ compensationPattern: e.target.value })}
+                      placeholder="如：骨盆前倾、肩胛前引"
+                    />
+                  </div>
 
-              <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
-                <span>程度</span>
-                <select
-                  className="assessment-input"
-                  value={activeClient.injury_detail?.level || 'mild'}
-                  onChange={(e) => updateInjuryField({ level: e.target.value as InjuryLevel })}
-                >
-                  {injuryLevelOptions.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>代偿侧别</span>
+                    <select
+                      className="assessment-input"
+                      value={(activeClient as any).compensationSide || ''}
+                      onChange={(e) => updateClientField({ compensationSide: e.target.value as Client['compensationSide'] })}
+                    >
+                      <option value="">未设置</option>
+                      <option value="left">左侧</option>
+                      <option value="right">右侧</option>
+                      <option value="bilateral">双侧</option>
+                    </select>
+                  </div>
 
-              <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
-                <span>禁忌动作</span>
-                <input
-                  className="assessment-input"
-                  value={activeClient.injury_detail?.forbidden_moves || ''}
-                  onChange={(e) => updateInjuryField({ forbidden_moves: e.target.value })}
-                  placeholder="如：过顶推举、深度屈髋"
-                />
-              </div>
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>过度激活肌群</span>
+                    <input
+                      className="assessment-input"
+                      value={((activeClient as any).overactiveMuscles || []).join('、')}
+                      onChange={(e) => updateClientField({ overactiveMuscles: e.target.value.split(/[、,，]/).map((s: string) => s.trim()).filter(Boolean) })}
+                      placeholder="如：髂腰肌、竖脊肌（逗号分隔）"
+                    />
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>薄弱抑制肌群</span>
+                    <input
+                      className="assessment-input"
+                      value={((activeClient as any).underactiveMuscles || []).join('、')}
+                      onChange={(e) => updateClientField({ underactiveMuscles: e.target.value.split(/[、,，]/).map((s: string) => s.trim()).filter(Boolean) })}
+                      placeholder="如：臀大肌、深层核心（逗号分隔）"
+                    />
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>主要问题力线</span>
+                    <input
+                      className="assessment-input"
+                      value={((activeClient as any).problemChains || []).join('、')}
+                      onChange={(e) => updateClientField({ problemChains: e.target.value.split(/[、,，]/).map((s: string) => s.trim()).filter(Boolean) })}
+                      placeholder="前斜线/后斜线/侧线/深前线"
+                    />
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>骨盆控制能力</span>
+                    <select
+                      className="assessment-input"
+                      value={(activeClient as any).pelvisControl || ''}
+                      onChange={(e) => updateClientField({ pelvisControl: e.target.value as Client['pelvisControl'] })}
+                    >
+                      <option value="">未设置</option>
+                      <option value="none">无法控制</option>
+                      <option value="static">能静态控制</option>
+                      <option value="dynamic">能动态控制</option>
+                      <option value="loaded">能负重控制</option>
+                    </select>
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>单腿稳定性</span>
+                    <select
+                      className="assessment-input"
+                      value={(activeClient as any).singleLegStability || ''}
+                      onChange={(e) => updateClientField({ singleLegStability: e.target.value as Client['singleLegStability'] })}
+                    >
+                      <option value="">未设置</option>
+                      <option value="cannot">无法站立</option>
+                      <option value="unstable">能站立不稳</option>
+                      <option value="stable">能稳定站立</option>
+                      <option value="loaded">能负重站立</option>
+                    </select>
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>胸椎活动度</span>
+                    <select
+                      className="assessment-input"
+                      value={(activeClient as any).thoracicMobility || ''}
+                      onChange={(e) => updateClientField({ thoracicMobility: e.target.value as Client['thoracicMobility'] })}
+                    >
+                      <option value="">未设置</option>
+                      <option value="severe">严重受限</option>
+                      <option value="mild">轻度受限</option>
+                      <option value="normal">正常</option>
+                    </select>
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>髋屈肌状态</span>
+                    <select
+                      className="assessment-input"
+                      value={(activeClient as any).hipFlexorStatus || ''}
+                      onChange={(e) => updateClientField({ hipFlexorStatus: e.target.value as Client['hipFlexorStatus'] })}
+                    >
+                      <option value="">未设置</option>
+                      <option value="severe">严重紧张</option>
+                      <option value="mild">轻度紧张</option>
+                      <option value="normal">正常</option>
+                    </select>
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>禁忌动作模式</span>
+                    <input
+                      className="assessment-input"
+                      value={((activeClient as any).contraindicatedPatterns || []).join('、')}
+                      onChange={(e) => updateClientField({ contraindicatedPatterns: e.target.value.split(/[、,，]/).map((s: string) => s.trim()).filter(Boolean) })}
+                      placeholder="如：腰椎过伸、高冲击落地"
+                    />
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column', gridColumn: '1 / -1' }}>
+                    <span>教练备注</span>
+                    <input
+                      className="assessment-input"
+                      value={(activeClient as any).kineticChainNote || ''}
+                      onChange={(e) => updateClientField({ kineticChainNote: e.target.value })}
+                      placeholder="其他动力链评估备注"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>训练年限</span>
+                    <input
+                      className="assessment-input"
+                      value={(activeClient as any).trainingYears || ''}
+                      onChange={(e) => updateClientField({ trainingYears: e.target.value })}
+                      placeholder="如：1年、3年以上"
+                    />
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>主要目标</span>
+                    <select
+                      className="assessment-input"
+                      value={activeClient.goal_type || 'muscle_gain'}
+                      onChange={(e) => updateGoalType(e.target.value as GoalType)}
+                    >
+                      {goalTypeOptions.map((g) => (
+                        <option key={g.value} value={g.value}>{g.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>分化方式</span>
+                    <select
+                      className="assessment-input"
+                      value={(activeClient as any).splitType || ''}
+                      onChange={(e) => updateClientField({ splitType: e.target.value })}
+                    >
+                      <option value="">未设置</option>
+                      <option value="全身">全身</option>
+                      <option value="上下肢">上下肢</option>
+                      <option value="推拉腿">推拉腿</option>
+                      <option value="四分化">四分化</option>
+                    </select>
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>每周训练天数</span>
+                    <input
+                      className="assessment-input"
+                      value={(activeClient as any).weeklyDays || ''}
+                      onChange={(e) => updateClientField({ weeklyDays: e.target.value })}
+                      placeholder="如：3天、4-5天"
+                    />
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>单次训练时长</span>
+                    <input
+                      className="assessment-input"
+                      value={(activeClient as any).sessionDuration || ''}
+                      onChange={(e) => updateClientField({ sessionDuration: e.target.value })}
+                      placeholder="如：60分钟"
+                    />
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>受伤史</span>
+                    <input
+                      className="assessment-input"
+                      value={(activeClient as any).injuryHistory || ''}
+                      onChange={(e) => updateClientField({ injuryHistory: e.target.value })}
+                      placeholder="如：腰椎间盘突出（2022）"
+                    />
+                  </div>
+
+                  <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                    <span>禁忌动作</span>
+                    <input
+                      className="assessment-input"
+                      value={(activeClient as any).contraindicatedMoves || ''}
+                      onChange={(e) => updateClientField({ contraindicatedMoves: e.target.value })}
+                      placeholder="如：过顶推举、深度屈髋"
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

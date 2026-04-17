@@ -1,15 +1,11 @@
 export async function generateWeekPlan(input = {}) {
-  const sessionTier = input.sessionTier || 'standard';
   const days = Array.isArray(input.days) ? input.days : [];
   const recentSessions = Array.isArray(input.recentSessions) ? input.recentSessions : [];
   const lastWeekBrief = String(input.lastWeekBrief || '').trim();
 
-  const tierLabel =
-    sessionTier === 'ultra'
-      ? 'Ultra 高级档（筋膜神经视角）'
-      : sessionTier === 'pro'
-        ? 'Pro 进阶档（动力链视角）'
-        : 'Standard 基础档（肌肉解剖视角）';
+  const membershipLevel = input.membershipLevel || 'standard';
+  const mappedTier = (membershipLevel === 'professional' || membershipLevel === 'elite') ? 'pro' : 'standard';
+  const tierLabel = mappedTier === 'pro' ? '动力链训练（Professional/Elite档位）' : '传统分化训练（Standard/Advanced档位）';
 
   const intensityPhase = String(input.intensityPhase || '').trim() || 'build';
 
@@ -30,6 +26,24 @@ export async function generateWeekPlan(input = {}) {
 - 不输出每天单次训练细节与动作（不写 modules/exercises）
 - days 字段仅作可选的极简摘要（可为空数组）
 `;
+
+  if (mappedTier === 'pro') {
+    systemPrompt += `
+【动力链课程周规划要求】
+本周的 week_theme 必须体现动力链训练阶段的重点：
+- 神经重置期：以抑制和呼吸控制为主，不安排大重量
+- 激活建立期：低强度动力链动作，重点建立感知
+- 力量加载期：加入主力量动作和爆发动作
+- 整合期：全链路整合验收
+week_brief 里要说明本周热身的抑制目标和主训的力线方向。
+`;
+  } else {
+    systemPrompt += `
+【传统分化课程周规划要求】
+本周的 week_theme 体现分化训练的部位安排（如推拉腿/全身/上下肢）。
+week_brief 说明本周的主要训练部位和强度阶段。
+`;
+  }
 
   if (String(input.blockGoal || '').trim()) {
     systemPrompt += `\n【当前 Block 训练目标】\n${input.blockGoal}\n`;
@@ -177,19 +191,15 @@ ${lastWeekBrief}
 }
 
 export async function generateFullPlan(input = {}) {
-  const sessionTier = input.sessionTier || 'standard';
   const weeksTotal = Number(input.weeksTotal || input.weeks || 4);
   const recentSessions = Array.isArray(input.recentSessions) ? input.recentSessions : [];
   const clientHistory = input.clientHistory || {};
   const clientGoal = String(input.clientGoal || '').trim();
   const clientInjury = String(input.clientInjury || '').trim();
 
-  const tierLabel =
-    sessionTier === 'ultra'
-      ? 'Ultra 高级档（筋膜神经视角）'
-      : sessionTier === 'pro'
-        ? 'Pro 进阶档（动力链视角）'
-        : 'Standard 基础档（肌肉解剖视角）';
+  const membershipLevel = input.membershipLevel || 'standard';
+  const mappedTier = (membershipLevel === 'professional' || membershipLevel === 'elite') ? 'pro' : 'standard';
+  const tierLabel = mappedTier === 'pro' ? '动力链训练（Professional/Elite档位）' : '传统分化训练（Standard/Advanced档位）';
 
   // 强制应用 intensity_phase 节奏：build → build → peak → deload
   const buildIntensityPhaseSequence = (weekIndex) => {
@@ -226,6 +236,26 @@ export async function generateFullPlan(input = {}) {
 - 周数：${weeksTotal}
 - Block：${input.blockTitle || ''}
 `;
+
+  if (mappedTier === 'pro') {
+    systemPrompt += `
+【动力链课程 Block 规划逻辑（必须遵守）】
+本 Block 的周主题必须按照以下四阶段推进（可根据总周数压缩或拉伸）：
+阶段一 神经重置期：抑制代偿，建立呼吸控制和感知，无大重量
+阶段二 激活建立期：低强度动力链动作，单腿控制，骨盆锁定
+阶段三 力量加载期：主力量复合动作，爆发动作介入
+阶段四 整合期：全链路整合，运动表现验收
+
+每周的 week_theme 必须写出当周对应的阶段名称和重点，不能只写“力量周”。
+`;
+  } else {
+    systemPrompt += `
+【传统分化课程 Block 规划逻辑（必须遵守）】
+本 Block 的周主题围绕客户目标（增肌/减脂/体态/力量）推进。
+强度按照 build→build→peak→deload 的4周节奏循环。
+每周的 week_theme 体现当周的分化重点和强度阶段。
+`;
+  }
 
   if (String(input.blockGoal || '').trim()) {
     systemPrompt += `\n【当前 Block 训练目标】\n${input.blockGoal}\n`;

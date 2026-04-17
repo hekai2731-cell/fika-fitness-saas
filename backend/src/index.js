@@ -375,7 +375,14 @@ app.post('/api/clients/:id/plan/review-ready', async (req, res) => {
 app.post('/api/clients/:id/plan/publish', async (req, res) => {
   try {
     const { id } = req.params;
-    const { publishedByCoachCode, publishedByCoachName } = req.body || {};
+    const {
+      publishedByCoachCode,
+      publishedByCoachName,
+      selectedWeekNum,
+      selectedDay,
+      selectedDayId,
+      selectedBlockId,
+    } = req.body || {};
 
     const client = await Client.findOne({ id });
     if (!client) {
@@ -410,6 +417,16 @@ app.post('/api/clients/:id/plan/publish', async (req, res) => {
     client.plan_published_version = draftVersion;
     client.plan_published_at = publishedAt;
     client.plan_publish_history = nextHistory;
+
+    const firstBlock = blocks[0] || null;
+    const firstWeek = Array.isArray(firstBlock?.training_weeks) ? firstBlock.training_weeks[0] : null;
+    const firstDay = Array.isArray(firstWeek?.days) ? firstWeek.days[0] : null;
+
+    client.current_week = Number(selectedWeekNum || client.current_week || firstWeek?.week_num || 1);
+    client.current_day = String(selectedDay || client.current_day || firstDay?.day || '');
+    client.current_day_id = String(selectedDayId || client.current_day_id || firstDay?.id || '');
+    client.current_block_id = String(selectedBlockId || client.current_block_id || firstBlock?.id || '');
+
     client.updatedAt = publishedAt;
     await client.save();
 

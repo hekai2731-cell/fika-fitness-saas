@@ -11,10 +11,15 @@ interface Session {
   id: string;
   date: string;
   day?: string;
+  day_id?: string;
+  block_id?: string;
   rpe?: number;
   duration?: number;
   performance?: string;
   note?: string;
+  week?: number;
+  block_index?: number;
+  block_week?: number;
 }
 
 interface WeeklyData {
@@ -50,14 +55,6 @@ interface Plan {
   modules: Module[];
 }
 
-interface PlanRecord {
-  _id: string;
-  clientId?: string;
-  planType?: string;
-  title?: string;
-  result?: any;
-}
-
 interface Client {
   id: string;
   roadCode?: string;
@@ -71,6 +68,9 @@ interface Client {
   goal?: string;
   weeks?: number;
   current_week?: number;
+  current_day?: string;
+  current_day_id?: string;
+  current_block_id?: string;
   injury?: string;
   blocks?: Block[];
   published_blocks?: Block[];
@@ -108,8 +108,11 @@ interface Block {
 }
 
 // ── 工具 ─────────────────────────────────────────────────────
-function tierLabel(t?: string) {
-  return t === 'ultra' ? 'Ultra 高级' : t === 'pro' ? 'Pro 进阶' : 'Standard 基础';
+function membershipGroupLabel(level?: string) {
+  return (level === 'professional' || level === 'elite') ? '动力链训练' : '传统分化训练';
+}
+function isPro(level?: string) {
+  return level === 'professional' || level === 'elite';
 }
 
 function getTagColor(tag?: string) {
@@ -118,70 +121,119 @@ function getTagColor(tag?: string) {
   return m[tag[0]] || '#6B7280';
 }
 
-const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const;
+type PublishedDayRef = {
+  blockIndex: number;
+  blockId: string;
+  weekNum: number;
+  weekId: string;
+  dayIndex: number;
+  dayId: string;
+  dayLabel: string;
+  day: Day;
+  weekDays: Day[];
+};
 
-function getTodayPlan(c: Client): Plan | null {
-  // 优先使用教练端发布的训练内容
-  const publishedBlocks = (c.published_blocks || []).filter(Boolean);
-  if (publishedBlocks.length === 0) {
-    console.log('No published blocks found for client:', c.id);
-    return null;
+function flattenPublishedDays(c: Client): PublishedDayRef[] {
+  const blocks = (c.published_blocks || []).filter(Boolean);
+  const refs: PublishedDayRef[] = [];
+  blocks.forEach((block, blockIndex) => {
+    const weeks = (block.training_weeks || block.weeks || []).filter(Boolean);
+    weeks.forEach((week, weekIndex) => {
+      const weekNum = Number(week.week_num ?? week.num ?? weekIndex + 1);
+      const weekId = String(week.id || `${block.id || `block-${blockIndex}`}-week-${weekNum}`);
+      const weekDays = (week.days || []).filter(Boolean);
+      weekDays.forEach((day, dayIndex) => {
+        const dayId = String(day.id || `${weekId}-day-${dayIndex + 1}`);
+        refs.push({
+          blockIndex,
+          blockId: String(block.id || `block-${blockIndex}`),
+          weekNum,
+          weekId,
+          dayIndex,
+          dayId,
+          dayLabel: String(day.day || ''),
+          day,
+          weekDays,
+        });
+      });
+    });
+  });
+  return refs;
+}
+
+function resolvePointerIndex(c: Client, refs: PublishedDayRef[]): number {
+  if (refs.length === 0) return -1;
+
+  if (c.current_day_id) {
+    const idxByDayId = refs.findIndex((r) => r.dayId === c.current_day_id);
+    if (idxByDayId >= 0) return idxByDayId;
   }
 
-  const allWeeks = publishedBlocks.flatMap((b) => b.training_weeks || b.weeks || []);
-  if (allWeeks.length === 0) {
-    console.log('No weeks found in published blocks');
-    return null;
+  const idxByComposite = refs.findIndex((r) => {
+    const weekMatch = c.current_week ? r.weekNum === Number(c.current_week) : true;
+    const dayMatch = c.current_day ? r.dayLabel === String(c.current_day) : true;
+    const blockMatch = c.current_block_id ? r.blockId === String(c.current_block_id) : true;
+    return weekMatch && dayMatch && blockMatch;
+  });
+  if (idxByComposite >= 0) return idxByComposite;
+
+  if (c.current_week) {
+    const idxByWeek = refs.findIndex((r) => r.weekNum === Number(c.current_week));
+    if (idxByWeek >= 0) return idxByWeek;
   }
 
-  const targetWeekNum = Number(c.current_week || 1);
-  const currentWeek = allWeeks.find((w) => Number(w.week_num ?? w.num ?? 1) === targetWeekNum) || allWeeks[0];
-  if (!currentWeek) {
-    console.log('No current week found for week:', targetWeekNum);
-    return null;
-  }
+  return 0;
+}
 
-  const todayLabel = WEEKDAY_LABELS[new Date().getDay()];
-  const matchedDay = (currentWeek.days || []).find((d) => d.day === todayLabel);
-  const selectedDay = matchedDay || (currentWeek.days || [])[0];
-  if (!selectedDay) {
-    console.log('No matching day found for today:', todayLabel);
-    return null;
-  }
-
-  const modules = Array.isArray(selectedDay.modules) ? selectedDay.modules : selectedDay.plan?.modules;
-  if (!modules || modules.length === 0) {
-    const summaryTitle = String(selectedDay.name || selectedDay.focus || '今日训练安排').trim();
-    const summaryCue = String(selectedDay.focus || selectedDay.name || '').trim();
-
-    if (!summaryTitle && !summaryCue) {
-      console.log('No modules found for today\'s training');
-      return null;
-    }
-
+function buildPlanFromDay(day: Day): Plan | null {
+  const modules = Array.isArray(day.modules) ? day.modules : day.plan?.modules;
+  if (Array.isArray(modules) && modules.length > 0) {
     return {
-      session_name: summaryTitle || '今日训练安排',
-      modules: [
-        {
-          module_name: summaryTitle || '今日训练安排',
-          format: '已发布周计划（待细化）',
-          exercises: [
-            {
-              name: summaryCue || '教练已发布本周计划，请按本日重点执行',
-              sets: 1,
-              reps: '按计划执行',
-              cue: '如需具体动作组数，请在教练端生成并发布单次训练计划。',
-            },
-          ],
-        },
-      ],
+      session_name: day.name,
+      modules,
     };
   }
 
-  console.log('Found today\'s plan:', { session_name: selectedDay.name, modules: modules.length, isToday: !!matchedDay });
+  const summaryTitle = String(day.name || day.focus || '今日训练安排').trim();
+  const summaryCue = String(day.focus || day.name || '').trim();
+  if (!summaryTitle && !summaryCue) return null;
+
   return {
-    session_name: selectedDay.name,
-    modules,
+    session_name: summaryTitle || '今日训练安排',
+    modules: [
+      {
+        module_name: summaryTitle || '今日训练安排',
+        format: '已发布周计划（待细化）',
+        exercises: [
+          {
+            name: summaryCue || '教练已发布本周计划，请按本日重点执行',
+            sets: 1,
+            reps: '按计划执行',
+            cue: '如需具体动作组数，请在教练端生成并发布单次训练计划。',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function resolveTodayEntry(c: Client): {
+  plan: Plan | null;
+  dayRef: PublishedDayRef | null;
+  refs: PublishedDayRef[];
+  timelineDays: Day[];
+} {
+  const refs = flattenPublishedDays(c);
+  if (refs.length === 0) {
+    return { plan: null, dayRef: null, refs: [], timelineDays: [] };
+  }
+  const pointerIndex = resolvePointerIndex(c, refs);
+  const dayRef = refs[Math.max(0, pointerIndex)] || refs[0];
+  return {
+    plan: buildPlanFromDay(dayRef.day),
+    dayRef,
+    refs,
+    timelineDays: dayRef.weekDays,
   };
 }
 
@@ -210,17 +262,16 @@ function findClientById(clientId: string): Client | null {
 function TodayTab({
   client,
   onFeedback,
-  planOverride,
 }: {
   client: Client;
   onFeedback: (rpe: number, note: string) => void;
-  planOverride?: Plan | null;
 }) {
   const [feedbackRpe, setFeedbackRpe] = useState(7);
   const [feedbackNote, setFeedbackNote] = useState('');
   const [showFeedback, setShowFeedback] = useState(false);
 
-  const todayPlan = planOverride || getTodayPlan(client);
+  const todayEntry = resolveTodayEntry(client);
+  const todayPlan = todayEntry.plan;
   const planVersionLabel = getPlanVersionLabel(client);
 
   // 定期同步教练端发布的训练内容
@@ -243,9 +294,12 @@ function TodayTab({
           
           const currentClient = findClientById(client.id);
           if (currentClient) {
-            const hasNewData = !currentClient.published_blocks || 
-                             !coachClient.published_blocks ||
-                             JSON.stringify(currentClient.published_blocks) !== JSON.stringify(coachClient.published_blocks);
+            const hasNewData =
+              JSON.stringify(currentClient.published_blocks || []) !== JSON.stringify(coachClient.published_blocks || []) ||
+              Number(currentClient.plan_published_version || 0) !== Number(coachClient.plan_published_version || 0) ||
+              Number(currentClient.current_week || 1) !== Number(coachClient.current_week || 1) ||
+              String(currentClient.current_day_id || '') !== String(coachClient.current_day_id || '') ||
+              String(currentClient.current_block_id || '') !== String(coachClient.current_block_id || '');
             
             if (hasNewData) {
               console.log('Found new coach data, updating...');
@@ -256,7 +310,10 @@ function TodayTab({
                 published_blocks: coachClient.published_blocks,
                 plan_published_version: coachClient.plan_published_version,
                 plan_published_at: coachClient.plan_published_at,
-                current_week: coachClient.current_week
+                current_week: coachClient.current_week,
+                current_day: coachClient.current_day,
+                current_day_id: coachClient.current_day_id,
+                current_block_id: coachClient.current_block_id,
               };
               
               console.log('Updated client data:', {
@@ -298,31 +355,8 @@ function TodayTab({
     return () => clearInterval(timer);
   }, [client?.id, client?.roadCode]);
 
-  // 获取当前周计划信息
-  const getCurrentWeekPlan = () => {
-    const currentWeek = client.current_week || 1;
-    // 优先使用 published_blocks 而不是 blocks
-    const blocks = client.published_blocks || client.blocks || [];
-    
-    console.log('getCurrentWeekPlan:', { currentWeek, blocksCount: blocks.length, publishedBlocksCount: client.published_blocks?.length || 0 });
-    
-    for (const block of blocks) {
-      const week = block.training_weeks?.find(w => w.week_num === currentWeek);
-      if (week) {
-        return {
-          blockTitle: block.title,
-          weekNum: week.week_num,
-          days: week.days || []
-        };
-      }
-    }
-    return null;
-  };
-
-  const weekPlan = getCurrentWeekPlan();
-  const todayLabel = WEEKDAY_LABELS[new Date().getDay()];
-  const timelineDays = weekPlan?.days || [];
-  const todayIndex = timelineDays.findIndex((d) => d.day === todayLabel);
+  const timelineDays = todayEntry.timelineDays;
+  const todayIndex = todayEntry.dayRef?.dayIndex ?? -1;
   const weekFocusSummary = timelineDays.find((d) => d.focus)?.focus || '本周重点聚焦动作质量与强度推进，保持恢复节奏。';
   const resolvedMembershipLevel: 'standard' | 'advanced' | 'professional' | 'elite' =
     client.membershipLevel || 'standard';
@@ -359,7 +393,7 @@ function TodayTab({
   return (
     <div>
       {/* 周计划概览 */}
-      {weekPlan && (
+      {timelineDays.length > 0 && (
         <div
           className="card-sm"
           style={{
@@ -373,7 +407,7 @@ function TodayTab({
         >
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 900, color: tierTheme.accent, letterSpacing: '.05em' }}>
-              {`WEEK ${weekPlan.weekNum || 1}`} / 第{client.current_week || weekPlan.weekNum || 1}周
+              {`WEEK ${todayEntry.dayRef?.weekNum || 1}`} / 第{todayEntry.dayRef?.weekNum || 1}周
             </div>
           </div>
 
@@ -429,7 +463,7 @@ function TodayTab({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {timelineDays.map((day, idx) => {
-                const isToday = day.day === todayLabel;
+                const isToday = idx === todayIndex;
                 const isDone = todayIndex >= 0 && idx < todayIndex;
                 const isFuture = !isToday && !isDone;
                 const mainColor = isToday ? tierTheme.accent : isDone ? '#2e3445' : '#9aa3bb';
@@ -497,42 +531,6 @@ function TodayTab({
       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--s600)', marginBottom: 10 }}>今日训练计划</div>
       <div style={{ fontSize: 11, color: 'var(--s500)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
         {planVersionLabel}
-        <button
-          className="btn btn-o"
-          style={{ fontSize: 10, padding: '2px 6px', height: 'auto' }}
-          onClick={() => {
-            // 手动触发同步
-            const coachClients = JSON.parse(localStorage.getItem('fika_coach_clients_v1') || '[]');
-            const coachClient = coachClients.find((c: any) => c.id === client.id || c.roadCode === client.roadCode);
-            
-            if (coachClient && coachClient.published_blocks) {
-              const currentClient = findClientById(client.id);
-              if (currentClient) {
-                const updatedClient = {
-                  ...currentClient,
-                  published_blocks: coachClient.published_blocks,
-                  plan_published_version: coachClient.plan_published_version,
-                  plan_published_at: coachClient.plan_published_at,
-                  current_week: coachClient.current_week
-                };
-                
-                const all: Client[] = JSON.parse(localStorage.getItem('fika_clients') || '[]');
-                const idx = all.findIndex((c) => c.id === updatedClient.id);
-                if (idx >= 0) all[idx] = updatedClient;
-                else all.push(updatedClient);
-                localStorage.setItem('fika_clients', JSON.stringify(all));
-                localStorage.setItem('fika_current_client', JSON.stringify(updatedClient));
-                
-                alert('训练计划已同步！');
-                window.location.reload();
-              }
-            } else {
-              alert('未找到教练端的训练计划，请先在教练端发布训练内容。');
-            }
-          }}
-        >
-          🔄 同步训练计划
-        </button>
       </div>
 
       {todayPlan ? (
@@ -693,10 +691,6 @@ function ProgressTab({ client }: { client: Client }) {
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
 
-  const isProduction = window.location.hostname !== 'localhost';
-  const apiBase = isProduction ? '' : ((import.meta as any).env?.VITE_API_BASE_URL || '');
-  const apiUrl = (path: string) => (apiBase ? String(apiBase).replace(/\/$/, '') + path : path);
-
   // 计算平均RPE趋势
   const recentRpes = sessions.slice(-6).map((s: any) => s.rpe || 0).filter(Boolean);
   const avgRpe = recentRpes.length ? +(recentRpes.reduce((a: number, b: number) => a + b, 0) / recentRpes.length).toFixed(1) : null;
@@ -715,7 +709,7 @@ function ProgressTab({ client }: { client: Client }) {
     try {
       const prompt = `你是FiKA Fitness的教练助手。请根据以下客户训练数据，用简洁温暖的中文写一段个性化进度报告（150字以内），告诉客户：这段时间练了什么、哪里进步了、下一步的重点是什么。语气要鼓励但专业，像教练在课后跟客户说话一样自然。
 
-客户档位：${tierLabel(client.tier)}
+训练方式：${membershipGroupLabel(client.membershipLevel)}（${client.membershipLevel === 'elite' ? 'Elite至尊会员' : client.membershipLevel === 'professional' ? 'Professional专业会员' : client.membershipLevel === 'advanced' ? 'Advanced进阶会员' : 'Standard基础会员'}）
 总训练节数：${sessions.length}
 当前训练阶段：${currentBlock?.title || '训练中'}
 平均RPE：${avgRpe || '暂无数据'}
@@ -899,22 +893,34 @@ function ProgressTab({ client }: { client: Client }) {
       )}
 
       {/* 档位能力说明 */}
-      {client.tier !== 'standard' && (
+      {isPro(client.membershipLevel) ? (
         <div className="card-sm" style={{ padding: 14, marginTop: 10, background: 'var(--p2)', border: '1px solid var(--p3)' }}>
-          <div className="lbl" style={{ color: 'var(--p)', marginBottom: 6 }}>
-            {tierLabel(client.tier)} · 专项指标
-          </div>
+          <div className="lbl" style={{ color: 'var(--p)', marginBottom: 6 }}>动力链训练 · 专项指标</div>
           {[
-            ['动力链完整度', client.tier === 'ultra' ? '筋膜神经视角' : 'X-Sling 对角线'],
-            ['训练节奏', client.tier === 'ultra' ? 'X012 爆发制动' : '3030 离心控制'],
-            ['模块格式', client.tier === 'ultra' ? 'EMOM + 循环' : '超级组 + 功能链'],
+            ['训练方向', '力线整合 · 运动模式重建'],
+            ['热身逻辑', '抑制 → 激活 → 整合'],
+            ['主训格式', '超级组 + 功能链'],
+            ['收尾验收', '神经重置呼吸 + 腰窝触诊'],
+            ['当前阶段', (client as any).trainingPhase === 'neural_reset' ? '神经重置期' : (client as any).trainingPhase === 'activation' ? '激活建立期' : (client as any).trainingPhase === 'loading' ? '力量加载期' : (client as any).trainingPhase === 'integration' ? '整合期' : '进行中'],
           ].map(([k, v]) => (
-            <div
-              key={k}
-              style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--p3)', fontSize: 11 }}
-            >
+            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--p3)', fontSize: 11 }}>
               <span style={{ color: 'var(--s600)' }}>{k}</span>
               <span style={{ fontWeight: 600, color: 'var(--p)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="card-sm" style={{ padding: 14, marginTop: 10, background: 'var(--s50)', border: '1px solid var(--s200)' }}>
+          <div className="lbl" style={{ color: 'var(--s600)', marginBottom: 6 }}>传统分化训练 · 训练说明</div>
+          {[
+            ['训练方式', '肌群分化 · 感知优先'],
+            ['动作节奏', '3030 离心控制'],
+            ['主训格式', '独立单体 + 超级组'],
+            ['核心目标', '建立肌肉感知与动作模式'],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--s200)', fontSize: 11 }}>
+              <span style={{ color: 'var(--s500)' }}>{k}</span>
+              <span style={{ fontWeight: 600, color: 'var(--s700)' }}>{v}</span>
             </div>
           ))}
         </div>
@@ -1076,7 +1082,7 @@ function HistoryTab({ client }: { client: Client }) {
                     <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--s500)', marginBottom: 4 }}>训练档位</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ fontSize: 14, color: 'var(--s800)' }}>
-                        {client.tier === 'ultra' ? 'Ultra 高级训练' : client.tier === 'pro' ? 'Pro 进阶训练' : 'Standard 基础训练'}
+                        {isPro(client.membershipLevel) ? '动力链训练' : '传统分化训练'}
                       </div>
                       <button
                         className="btn btn-o"
@@ -1408,7 +1414,7 @@ function ProfileTab({ client }: { client: Client }) {
           { label: '深蹲活动度', value: '—', color: 'var(--p)' },
           { label: '肩关节活动度', value: '—', color: 'var(--a)' },
           { label: '单腿平衡', value: (latest as any).balance ? `${(latest as any).balance}s` : '—', color: 'var(--g)' },
-          { label: '动力链完整度', value: client.tier === 'ultra' ? '高级' : client.tier === 'pro' ? '进阶' : '基础', color: 'var(--p)' },
+          { label: '训练方式', value: isPro(client.membershipLevel) ? '动力链训练' : '传统分化训练', color: 'var(--p)' },
         ].map((item) => (
           <div
             key={item.label}
@@ -1430,7 +1436,8 @@ function ProfileTab({ client }: { client: Client }) {
           ['身高', client.height ? `${client.height}cm` : '—'],
           ['体重', (latest as any).weight ? `${(latest as any).weight}kg` : client.weight ? `${client.weight}kg` : '—'],
           ['训练目标', client.goal || '—'],
-          ['训练档位', tierLabel(client.tier)],
+          ['训练方式', membershipGroupLabel(client.membershipLevel)],
+          ['会员档位', client.membershipLevel === 'elite' ? 'Elite 至尊' : client.membershipLevel === 'professional' ? 'Professional 专业' : client.membershipLevel === 'advanced' ? 'Advanced 进阶' : 'Standard 基础'],
           ['周期', client.weeks ? `${client.weeks}周` : '—'],
           ['路书码', client.roadCode || client.id],
         ].map(([k, v]) => (
@@ -1460,12 +1467,6 @@ interface StudentPortalProps {
 export function StudentPortal({ display, onLogout, client: propClient }: StudentPortalProps) {
   const [tab, setTab] = useState<StuTab>('today');
   const [client, setClient] = useState<Client | null>(propClient || null);
-  const [remoteTodayPlan, setRemoteTodayPlan] = useState<Plan | null>(null);
-
-  // 生产环境使用相对路径，开发环境使用环境变量
-  const isProduction = import.meta.env.PROD;
-  const apiBase = isProduction ? '' : ((import.meta as any).env?.VITE_API_BASE_URL || '');
-  const apiUrl = (path: string) => (apiBase ? String(apiBase).replace(/\/$/, '') + path : path);
 
   // 如果没有外部传入的 client，尝试从 localStorage 读取
   useEffect(() => {
@@ -1483,68 +1484,91 @@ export function StudentPortal({ display, onLogout, client: propClient }: Student
 
   useEffect(() => {
     const clientId = propClient?.id || client?.id;
-    if (!clientId) return;
+    const roadCode = String(propClient?.roadCode || client?.roadCode || '').trim().toUpperCase();
+    if (!clientId && !roadCode) return;
 
-    const syncLatestClient = () => {
-      const latest = findClientById(clientId);
+    const syncLatestClient = async () => {
+      let latest: Client | null = null;
+
+      if (roadCode) {
+        try {
+          const resp = await fetch(`/api/clients/by-road-code/${encodeURIComponent(roadCode)}`);
+          if (resp.ok) {
+            latest = (await resp.json()) as Client;
+          }
+        } catch {
+          // 网络异常时走本地兜底
+        }
+      }
+
+      if (!latest && clientId) {
+        latest = findClientById(clientId);
+      }
+
       if (!latest) return;
+
+      // 将后端最新数据回写本地缓存，避免不同页面读取到旧数据
+      try {
+        const all: Client[] = JSON.parse(localStorage.getItem('fika_clients') || '[]');
+        const idx = all.findIndex((c) => c.id === latest!.id);
+        if (idx >= 0) all[idx] = { ...all[idx], ...latest };
+        else all.push(latest);
+        localStorage.setItem('fika_clients', JSON.stringify(all));
+        localStorage.setItem('fika_current_client', JSON.stringify(latest));
+      } catch {
+        // ignore local mirror failures
+      }
+
       setClient((prev) => (isSameClientSnapshot(prev, latest) ? prev : latest));
     };
 
-    syncLatestClient();
-    const timer = window.setInterval(syncLatestClient, 3000);
-    window.addEventListener('storage', syncLatestClient);
-    window.addEventListener('focus', syncLatestClient);
+    void syncLatestClient();
+    const timer = window.setInterval(() => { void syncLatestClient(); }, 3000);
+    const onStorage = () => { void syncLatestClient(); };
+    const onFocus = () => { void syncLatestClient(); };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', onFocus);
 
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener('storage', syncLatestClient);
-      window.removeEventListener('focus', syncLatestClient);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', onFocus);
     };
-  }, [propClient?.id, client?.id]);
-
-  useEffect(() => {
-    const roadCode = String(propClient?.roadCode || client?.roadCode || propClient?.id || client?.id || '').trim();
-    if (!roadCode) {
-      setRemoteTodayPlan(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadLatestPlan = async () => {
-      try {
-        const resp = await fetch(apiUrl(`/api/plans?clientId=${encodeURIComponent(roadCode)}&planType=session&limit=1`));
-        if (!resp.ok) return;
-        const list = (await resp.json()) as PlanRecord[];
-        const latest = Array.isArray(list) ? list[0] : null;
-        const modules = latest?.result?.modules;
-        if (!cancelled && Array.isArray(modules) && modules.length > 0) {
-          setRemoteTodayPlan({
-            session_name: latest?.result?.session_name || latest?.title || '今日训练',
-            tier: latest?.result?.tier,
-            modules,
-          });
-        }
-      } catch {
-        if (!cancelled) setRemoteTodayPlan(null);
-      }
-    };
-
-    void loadLatestPlan();
-    const timer = window.setInterval(() => void loadLatestPlan(), 15000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [propClient?.roadCode, propClient?.id, client?.roadCode, client?.id]);
+  }, [propClient?.id, propClient?.roadCode, client?.id, client?.roadCode]);
 
   const handleFeedback = (rpe: number, note: string) => {
     if (!client) return;
+    const todayEntry = resolveTodayEntry(client);
+    const refs = todayEntry.refs;
+    const currentRef = todayEntry.dayRef;
+    const currentIdx = currentRef
+      ? refs.findIndex((r) => r.dayId === currentRef.dayId && r.weekId === currentRef.weekId && r.blockId === currentRef.blockId)
+      : -1;
+    const nextRef = currentIdx >= 0 && currentIdx + 1 < refs.length
+      ? refs[currentIdx + 1]
+      : currentRef || refs[0] || null;
+
     const updated: Client = {
       ...client,
-      sessions: [...(client.sessions || []), { id: 'SE' + Date.now(), date: new Date().toLocaleDateString('zh-CN'), rpe, note }],
+      sessions: [
+        ...(client.sessions || []),
+        {
+          id: 'SE' + Date.now(),
+          date: new Date().toLocaleDateString('zh-CN'),
+          rpe,
+          note,
+          week: currentRef?.weekNum || Number(client.current_week || 1),
+          day: currentRef?.dayLabel || client.current_day,
+          day_id: currentRef?.dayId || client.current_day_id,
+          block_id: currentRef?.blockId || client.current_block_id,
+          block_index: currentRef?.blockIndex,
+          block_week: currentRef?.weekNum,
+        },
+      ],
+      current_week: nextRef?.weekNum || Number(client.current_week || 1),
+      current_day: nextRef?.dayLabel || client.current_day,
+      current_day_id: nextRef?.dayId || client.current_day_id,
+      current_block_id: nextRef?.blockId || client.current_block_id,
     };
     setClient(updated);
     // 同步到 localStorage（同时同步到全量 clients 列表）
@@ -1558,7 +1582,7 @@ export function StudentPortal({ display, onLogout, client: propClient }: Student
     } catch {
       // ignore
     }
-    alert(`反馈已提交！RPE ${rpe} 已记录，下次计划会自动调整强度`);
+    alert(`反馈已提交！RPE ${rpe} 已记录，已自动切换到下一次训练内容。`);
   };
 
   const navItems: { key: StuTab; label: string; icon: ReactNode }[] = [
@@ -1618,7 +1642,7 @@ export function StudentPortal({ display, onLogout, client: propClient }: Student
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {client && (
               <span className="badge bp" style={{ fontSize: 11 }}>
-                {client.name} · {tierLabel(client.tier)}
+                {client.name} · {isPro(client.membershipLevel) ? `动力链训练 / ${client.membershipLevel === 'elite' ? 'Elite' : 'Professional'}` : `传统训练 / ${client.membershipLevel === 'advanced' ? 'Advanced' : 'Standard'}`}
               </span>
             )}
             <button className="btn-ghost btn btn-sm" onClick={onLogout} type="button">
@@ -1640,7 +1664,7 @@ export function StudentPortal({ display, onLogout, client: propClient }: Student
           </div>
         ) : (
           <>
-            {tab === 'today' && <TodayTab client={client} onFeedback={handleFeedback} planOverride={remoteTodayPlan} />}
+            {tab === 'today' && <TodayTab client={client} onFeedback={handleFeedback} />}
             {tab === 'progress' && <ProgressTab client={client} />}
             {tab === 'history' && <HistoryTab client={client} />}
             {tab === 'profile' && <ProfileTab client={client} />}

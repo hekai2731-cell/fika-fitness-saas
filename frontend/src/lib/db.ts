@@ -61,6 +61,9 @@ export type Client = {
   weeklyData?: Array<Record<string, unknown>>;
   start_date?: string;
   current_week?: number;
+  current_day?: string;
+  current_day_id?: string;
+  current_block_id?: string;
   blocks?: Block[];
   published_blocks?: Block[];
   plan_draft_version?: number;
@@ -132,6 +135,26 @@ export type Client = {
     score_snapshot?: number;
     notes?: string;
   }>;
+  // 传统课程字段（Standard/Advanced）
+  trainingYears?: string;
+  splitType?: string;
+  weeklyDays?: string;
+  sessionDuration?: string;
+  injuryHistory?: string;
+  contraindicatedMoves?: string;
+  // 动力链评估字段（Professional/Elite 客户专用）
+  trainingPhase?: 'neural_reset' | 'activation' | 'loading' | 'integration';
+  compensationPattern?: string;
+  compensationSide?: 'left' | 'right' | 'bilateral';
+  overactiveMuscles?: string[];
+  underactiveMuscles?: string[];
+  problemChains?: string[];
+  pelvisControl?: 'none' | 'static' | 'dynamic' | 'loaded';
+  singleLegStability?: 'cannot' | 'unstable' | 'stable' | 'loaded';
+  thoracicMobility?: 'severe' | 'mild' | 'normal' | 'hypermobile';
+  hipFlexorStatus?: 'severe' | 'mild' | 'normal';
+  contraindicatedPatterns?: string[];
+  kineticChainNote?: string;
 };
 
 export function getLevelInfo(level: number): { price: number } {

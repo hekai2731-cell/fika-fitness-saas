@@ -49,6 +49,9 @@ const ClientSchema = new mongoose.Schema({
   plan_updated_at: { type: Date },
   plan_publish_history: [{ type: mongoose.Schema.Types.Mixed }],
   current_week: { type: Number, default: 1 },
+  current_day: { type: String },
+  current_day_id: { type: String },
+  current_block_id: { type: String },
   
   // 会员信息
   membershipLevel: { type: String, enum: ['standard', 'advanced', 'professional', 'elite'] },

@@ -55,14 +55,6 @@ type LongPressDeleteMenu = {
   dayId?: string;
 };
 
-interface AiSettings {
-  training_session?: boolean;
-  training_week?: boolean;
-  training_ultra?: boolean;
-  nutrition_phase?: boolean;
-  nutrition_daily?: boolean;
-}
-
 type AiConfirmMode = 'full' | 'week' | 'day';
 
 interface PlanConfirmForm {
@@ -70,7 +62,7 @@ interface PlanConfirmForm {
   priorityGoals: string[];
   weeklyFrequency: string;
   coachAnalysis: string;
-  selectedTier: 'standard' | 'pro' | 'ultra';
+  selectedTier: 'standard' | 'pro';
   weekDirection: string;
   weekFocusAreas: string[];
   weekNote: string;
@@ -101,6 +93,10 @@ const TODAY_STATUS_OPTIONS: Array<{ value: string; label: string; desc: string }
 const DISCOMFORT_OPTIONS = ['无不适', '腰椎', '膝关节', '肩关节', '其他'] as const;
 
 
+const getAutoTier = (membershipLevel?: string): 'standard' | 'pro' => {
+  return (membershipLevel === 'professional' || membershipLevel === 'elite') ? 'pro' : 'standard';
+};
+
 const defaultPlanConfirmForm: PlanConfirmForm = {
   clientNeeds: '',
   priorityGoals: [],
@@ -120,13 +116,6 @@ const defaultPlanConfirmForm: PlanConfirmForm = {
   weekIntensityPhase: 'build',
 };
 
-function readAiSettings(): AiSettings {
-  try {
-    return JSON.parse(localStorage.getItem('fika_ai_settings') || '{}') || {};
-  } catch {
-    return {};
-  }
-}
 
 // ─── 单个动作编辑行 ─────────────────────────────────────────────────────────────
 function ExerciseRow({
@@ -692,10 +681,6 @@ export function PlanningPage({
   const [aiConfirmMode, setAiConfirmMode] = useState<AiConfirmMode | null>(null);
   const [dayPlanStep, setDayPlanStep] = useState<'tier' | 'detail'>('tier');
   const [planConfirmForm, setPlanConfirmForm] = useState<PlanConfirmForm>(defaultPlanConfirmForm);
-  const [aiSettings, setAiSettings] = useState<AiSettings>(() => readAiSettings());
-
-  // ── 选中的 tier（可临时覆盖客户默认档位）──
-  const [tierOverride, setTierOverride] = useState<string>('');
 
   // ── AI 生成预览状态 ──
   const [aiPreviewMode, setAiPreviewMode] = useState<'day' | 'week' | 'full' | null>(null);
@@ -715,23 +700,12 @@ export function PlanningPage({
     const list = getClientsFromCache();
     const c = list.find(cl => cl.id === selectedClientId);
     setClient(c || null);
-    setTierOverride(c?.tier || 'standard');
     const blk = c?.blocks?.[0];
     const wk = blk?.training_weeks?.[0];
     setSelectedBlockId(blk?.id || null);
     setSelectedWeekId(wk?.id || null);
     setSelectedDayId(wk?.days?.[0]?.id || null);
   }, [selectedClientId]);
-
-  useEffect(() => {
-    const syncAiSettings = () => setAiSettings(readAiSettings());
-    window.addEventListener('storage', syncAiSettings);
-    window.addEventListener('focus', syncAiSettings);
-    return () => {
-      window.removeEventListener('storage', syncAiSettings);
-      window.removeEventListener('focus', syncAiSettings);
-    };
-  }, []);
 
   // storage 事件：更新 client 的 sessions 等字段，不重置 block/week/day 选中状态
   useEffect(() => {
@@ -882,6 +856,9 @@ export function PlanningPage({
         plan_published_version: next.plan_published_version,
         plan_published_at: next.plan_published_at,
         current_week: next.current_week,
+        current_day: (next as any).current_day,
+        current_day_id: (next as any).current_day_id,
+        current_block_id: (next as any).current_block_id,
       };
 
       // Update fika_clients (read by student portal's syncLatestClient)
@@ -928,6 +905,10 @@ export function PlanningPage({
         body: JSON.stringify({
           publishedByCoachCode: (client as any).coachCode || '',
           publishedByCoachName: (client as any).coachName || '',
+          selectedWeekNum: Number((selectedWeek as any)?.week_num || 1),
+          selectedDay: String((selectedDay as any)?.day || ''),
+          selectedDayId: String((selectedDay as any)?.id || ''),
+          selectedBlockId: String((selectedBlock as any)?.id || ''),
         }),
       });
       const updated = (json as any)?.client as Client | undefined;
@@ -949,7 +930,12 @@ export function PlanningPage({
   // 生产环境使用相对路径，开发环境使用环境变量
   const isProduction = import.meta.env.PROD;
   const apiBase = isProduction ? '' : ((import.meta as any).env?.VITE_API_BASE_URL || '');
-  const apiUrl = (path: string) => (apiBase ? String(apiBase).replace(/\/$/, '') + path : path);
+  const apiUrl = (path: string) => {
+    if (!apiBase) return path;
+    const base = String(apiBase).replace(/\/$/, '');
+    if (base.endsWith('/api') && path.startsWith('/api/')) return path;
+    return base + path;
+  };
 
   const fetchJsonOrThrow = async (input: RequestInfo | URL, init?: RequestInit) => {
     const resp = await fetch(input, init);
@@ -1145,12 +1131,11 @@ export function PlanningPage({
   };
 
   const openAiConfirm = (mode: AiConfirmMode) => {
-    const currentTier = String(tierOverride || client?.tier || 'standard') as 'standard' | 'pro' | 'ultra';
-    const nextTier = currentTier === 'ultra' && aiSettings.training_ultra === false ? 'pro' : currentTier;
+    const autoTier = getAutoTier((client as any)?.membershipLevel);
     const intensityPhase = (selectedWeek as any)?.intensity_phase || 'build';
     setPlanConfirmForm({
       ...defaultPlanConfirmForm,
-      selectedTier: nextTier,
+      selectedTier: autoTier,
       weekIntensityPhase: intensityPhase as 'build' | 'peak' | 'deload',
       weekSelectedDays: (selectedWeek?.days || []).map((d: any) => String(d.day || '')).filter(Boolean),
     });
@@ -1179,12 +1164,7 @@ export function PlanningPage({
     openAiConfirm('day');
   };
 
-  const handleGenerateDayWithTier = (tier: 'standard' | 'pro' | 'ultra') => {
-    if (tier === 'ultra' && aiSettings.training_ultra === false) {
-      setError('Ultra 档位当前为待解锁状态，请在管理端 AI 开关中开启。');
-      return;
-    }
-    setTierOverride(tier);
+  const handleGenerateDayWithTier = (tier: 'standard' | 'pro') => {
     setAiConfirmMode(null);
     void onGenerateDayPlan(tier);
   };
@@ -1527,7 +1507,7 @@ export function PlanningPage({
   };
 
   // ── AI 生成今日计划 ───────────────────────────────────────────
-  const onGenerateDayPlan = async (forcedTier?: 'standard' | 'pro' | 'ultra') => {
+  const onGenerateDayPlan = async (forcedTier?: 'standard' | 'pro') => {
     if (!client || !selectedDay || !selectedWeek || !selectedBlock) return;
     const clientId = String(client?.id || (client as any)?.roadCode || 'unknown');
     setLoadingDay(true);
@@ -1558,7 +1538,7 @@ export function PlanningPage({
           membershipLevel: String((client as any).membershipLevel || 'standard'),
           statusScore: computeStatusScore(planConfirmForm.recoveryStatus, planConfirmForm.todayStatus),
           intensityPhase: String((selectedWeek as any)?.intensity_phase || 'build'),
-          sessionTier: forcedTier || String(tierOverride || client.tier || 'standard'),
+          sessionTier: forcedTier || getAutoTier((client as any)?.membershipLevel),
           lastSessionRpe: (client.sessions || []).slice(-1)[0]?.rpe || undefined,
           blockTitle: selectedBlock.title,
           weekLabel: `Week ${selectedWeek.week_num}`,
@@ -2260,6 +2240,29 @@ export function PlanningPage({
                       </div>
                     </div>
 
+                    {/* Pro/Elite 动力链提醒 */}
+                    {(client?.membershipLevel === 'professional' || client?.membershipLevel === 'elite') && (
+                      <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(207,122,37,.08)', border: '1px solid rgba(207,122,37,.3)', marginBottom: 8 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(207,122,37,.9)', marginBottom: 4 }}>⚡ 动力链客户提醒</div>
+                        {(client as any).trainingPhase && (
+                          <div style={{ fontSize: 11, color: '#4B5563', marginBottom: 2 }}>
+                            <span style={{ color: '#6B7280' }}>当前阶段：</span>
+                            {(client as any).trainingPhase === 'neural_reset' ? '神经重置期' : (client as any).trainingPhase === 'activation' ? '激活建立期' : (client as any).trainingPhase === 'loading' ? '力量加载期' : '整合期'}
+                          </div>
+                        )}
+                        {((client as any).problemChains?.length > 0) && (
+                          <div style={{ fontSize: 11, color: '#4B5563', marginBottom: 2 }}>
+                            <span style={{ color: '#6B7280' }}>问题力线：</span>{(client as any).problemChains.join('、')}
+                          </div>
+                        )}
+                        {(client as any).compensationPattern && (
+                          <div style={{ fontSize: 11, color: '#4B5563' }}>
+                            <span style={{ color: '#6B7280' }}>代偿提醒：</span>{(client as any).compensationPattern}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* 一键生成按钮 */}
                     <button
                       type="button"
@@ -2396,7 +2399,7 @@ export function PlanningPage({
                 : aiConfirmMode === 'day'
                 ? (dayPlanStep === 'tier'
                     ? `${selectedDay?.day || '周一'} · 第一步：选择今日课程档位`
-                    : (<><div>{selectedDay?.day || '周一'} · {(selectedDay as any)?.name || (selectedDay as any)?.focus || '今日训练'}</div><div style={{ marginTop: 2 }}>{planConfirmForm.selectedTier === 'ultra' ? '¥458 · 神经运动表现' : planConfirmForm.selectedTier === 'pro' ? '¥388 · 动力链' : '¥328 · 基础感知'}</div></>))
+                    : (<><div>{selectedDay?.day || '周一'} · {(selectedDay as any)?.name || (selectedDay as any)?.focus || '今日训练'}</div><div style={{ marginTop: 2 }}>{planConfirmForm.selectedTier === 'pro' ? '¥388 · 动力链' : '¥328 · 传统分化'}</div></>))
 
                 : `${(selectedWeek as any)?.week_theme || ((selectedWeek as any)?.intensity_phase === 'deload' ? '卸载恢复' : (selectedWeek as any)?.intensity_phase === 'peak' ? '峰值冲击' : '渐进加载')} · 调整本周训练安排`}
             </div>
@@ -2613,8 +2616,8 @@ export function PlanningPage({
                   const tierAccess: Record<string, string[]> = {
                     standard:     ['standard'],
                     advanced:     ['standard', 'pro'],
-                    professional: ['standard', 'pro', 'ultra'],
-                    elite:        ['standard', 'pro', 'ultra'],
+                    professional: ['standard', 'pro'],
+                    elite:        ['standard', 'pro'],
                   };
                   const memberLevel = String((client as any)?.membershipLevel || 'standard');
                   const allowedTiers = tierAccess[memberLevel] || ['standard'];
@@ -2622,8 +2625,8 @@ export function PlanningPage({
                     {
                       key: 'standard' as const,
                       price: '¥328',
-                      label: '基础感知课程',
-                      desc: '3模块 · 基础感知 · 60min',
+                      label: '传统分化课程',
+                      desc: '3模块 · 肌群感知 · 60min',
                       border: 'rgba(102,186,128,.46)',
                       bg: 'linear-gradient(145deg, rgba(214,246,223,.96), rgba(184,232,200,.9))',
                       color: 'rgba(26,88,49,.94)',
@@ -2631,20 +2634,11 @@ export function PlanningPage({
                     {
                       key: 'pro' as const,
                       price: '¥388',
-                      label: '动力链标准课程',
-                      desc: '4模块 · 动力链 · 60min',
+                      label: '动力链训练课程',
+                      desc: '4模块 · 动力链 · 70min',
                       border: 'rgba(154,127,232,.46)',
                       bg: 'linear-gradient(145deg, rgba(226,216,255,.96), rgba(204,188,249,.9))',
                       color: 'rgba(74,51,146,.94)',
-                    },
-                    {
-                      key: 'ultra' as const,
-                      price: '¥458',
-                      label: '精深课程',
-                      desc: '5模块 · 筋膜链 · 70min',
-                      border: 'rgba(236,163,89,.5)',
-                      bg: 'linear-gradient(145deg, rgba(255,226,193,.96), rgba(248,199,142,.9))',
-                      color: 'rgba(136,78,24,.94)',
                     },
                   ].map((tier) => {
                     const active = planConfirmForm.selectedTier === tier.key;
@@ -2794,6 +2788,33 @@ export function PlanningPage({
                       border: '1px solid #D9DCE6', background: '#FFFFFF', padding: '9px 10px',
                       fontSize: 13, color: '#25304A', outline: 'none' }} />
                 </div>
+
+                {/* Pro/Elite 动力链客户信息 */}
+                {(client?.membershipLevel === 'professional' || client?.membershipLevel === 'elite') && (
+                  <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(207,122,37,.08)', border: '1px solid rgba(207,122,37,.3)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(207,122,37,.9)', marginBottom: 6 }}>⚡ 动力链客户档案</div>
+                    {(client as any).trainingPhase && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ color: '#7B8498' }}>当前训练阶段</span>
+                        <span style={{ fontWeight: 700, color: '#1E2638' }}>
+                          {(client as any).trainingPhase === 'neural_reset' ? '神经重置期' : (client as any).trainingPhase === 'activation' ? '激活建立期' : (client as any).trainingPhase === 'loading' ? '力量加载期' : '整合期'}
+                        </span>
+                      </div>
+                    )}
+                    {((client as any).problemChains?.length > 0) && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ color: '#7B8498' }}>主要问题力线</span>
+                        <span style={{ fontWeight: 700, color: '#1E2638' }}>{(client as any).problemChains.join('、')}</span>
+                      </div>
+                    )}
+                    {(client as any).compensationPattern && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span style={{ color: '#7B8498' }}>代偿情况</span>
+                        <span style={{ fontWeight: 700, color: '#1E2638' }}>{(client as any).compensationPattern}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
                   <button type="button" onClick={() => setDayPlanStep('tier')}

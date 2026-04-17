@@ -272,9 +272,9 @@ function SetRow({
   const [actualWeight, setActualWeight] = useState('');
   const [actualSets, setActualSets] = useState('');
   const state = set.done ? 'done' : isCurrent ? 'current' : 'pending';
-  const bg = state === 'done' ? 'rgba(34,197,94,0.06)' : state === 'current' ? 'rgba(124,58,237,0.1)' : 'rgba(255,255,255,0.02)';
-  const border = state === 'done' ? 'rgba(34,197,94,0.2)' : state === 'current' ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.06)';
-  const numColor = state === 'done' ? '#4ade80' : state === 'current' ? '#a78bfa' : 'rgba(255,255,255,0.25)';
+  const bg = state === 'done' ? 'rgba(34,197,94,0.08)' : state === 'current' ? 'rgba(91,99,215,0.14)' : 'rgba(255,255,255,0.68)';
+  const border = state === 'done' ? 'rgba(34,197,94,0.26)' : state === 'current' ? 'rgba(91,99,215,0.45)' : 'rgba(203,213,225,0.9)';
+  const numColor = state === 'done' ? '#16a34a' : state === 'current' ? '#4f46e5' : 'rgba(100,116,139,0.9)';
 
   return (
     <>
@@ -303,14 +303,14 @@ function SetRow({
           style={{
             width: 58, height: 32, textAlign: 'center', fontSize: 13,
             fontFamily: 'monospace', fontWeight: 600,
-            background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 7, color: set.done ? 'rgba(255,255,255,0.3)' : '#fff',
+            background: 'rgba(255,255,255,0.92)', border: '1px solid rgba(203,213,225,0.92)',
+            borderRadius: 7, color: set.done ? 'rgba(148,163,184,0.9)' : '#0f172a',
             outline: 'none', transition: 'border-color 0.15s',
           }}
-          onFocus={e => (e.target.style.borderColor = 'rgba(124,58,237,0.7)')}
-          onBlur={e => (e.target.style.borderColor = 'rgba(255,255,255,0.1)')}
+          onFocus={e => (e.target.style.borderColor = 'rgba(91,99,215,0.7)')}
+          onBlur={e => (e.target.style.borderColor = 'rgba(203,213,225,0.92)')}
         />
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', flexShrink: 0 }}>kg ×</span>
+        <span style={{ fontSize: 10, color: 'rgba(100,116,139,0.72)', flexShrink: 0 }}>kg ×</span>
 
         {/* 次数输入 */}
         <input
@@ -321,14 +321,14 @@ function SetRow({
           style={{
             width: 58, height: 32, textAlign: 'center', fontSize: 13,
             fontFamily: 'monospace', fontWeight: 600,
-            background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 7, color: set.done ? 'rgba(255,255,255,0.3)' : '#fff',
+            background: 'rgba(255,255,255,0.92)', border: '1px solid rgba(203,213,225,0.92)',
+            borderRadius: 7, color: set.done ? 'rgba(148,163,184,0.9)' : '#0f172a',
             outline: 'none', transition: 'border-color 0.15s',
           }}
-          onFocus={e => (e.target.style.borderColor = 'rgba(124,58,237,0.7)')}
-          onBlur={e => (e.target.style.borderColor = 'rgba(255,255,255,0.1)')}
+          onFocus={e => (e.target.style.borderColor = 'rgba(91,99,215,0.7)')}
+          onBlur={e => (e.target.style.borderColor = 'rgba(203,213,225,0.92)')}
         />
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', flexShrink: 0 }}>次</span>
+        <span style={{ fontSize: 10, color: 'rgba(100,116,139,0.72)', flexShrink: 0 }}>次</span>
       </div>
 
       {/* 删除 */}
@@ -343,9 +343,9 @@ function SetRow({
       {/* 完成勾 */}
       <button onClick={onToggle} style={{
         width: 32, height: 32, borderRadius: 9, flexShrink: 0,
-        background: set.done ? 'rgba(34,197,94,0.18)' : isCurrent ? '#7C3AED' : 'rgba(255,255,255,0.06)',
+        background: set.done ? 'rgba(34,197,94,0.18)' : isCurrent ? '#5b63d7' : 'rgba(226,232,240,0.9)',
         border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700,
-        color: set.done ? '#4ade80' : isCurrent ? '#fff' : 'rgba(255,255,255,0.3)',
+        color: set.done ? '#16a34a' : isCurrent ? '#fff' : 'rgba(100,116,139,0.9)',
         transition: 'all 0.15s',
       }}>✓</button>
       </div>
@@ -402,8 +402,8 @@ function SetRow({
           style={{
             marginLeft: 20, marginRight: 20, marginBottom: 10,
             width: 'calc(100% - 40px)', height: 28, borderRadius: 8,
-            background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)',
-            color: 'rgba(253,230,138,0.7)', fontSize: 10, fontWeight: 600,
+            background: 'rgba(245,158,11,0.16)', border: '1px solid rgba(217,119,6,0.35)',
+            color: '#92400e', fontSize: 10, fontWeight: 700,
             cursor: 'pointer', transition: 'all 0.15s',
           }}
         >
@@ -513,19 +513,22 @@ function FinishSheet({
   return (
     <div style={{
       position: 'absolute', inset: 0, zIndex: 60,
-      background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(14px)',
-      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      background: 'rgba(148,163,184,0.42)', backdropFilter: 'blur(14px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 20,
     }}>
       <div style={{
-        width: '100%', maxWidth: 520,
-        background: '#18181B', borderRadius: '20px 20px 0 0',
-        border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden',
+        width: '100%', maxWidth: 460,
+        maxHeight: '82vh',
+        background: 'rgba(248,250,252,0.96)', borderRadius: 20,
+        border: '1px solid rgba(203,213,225,0.9)', overflow: 'hidden',
+        boxShadow: '0 20px 50px rgba(71,85,105,0.28)',
       }}>
-        <div style={{ width: 36, height: 3, background: 'rgba(255,255,255,0.15)', borderRadius: 2, margin: '10px auto 0' }} />
+        <div style={{ width: 36, height: 3, background: 'rgba(148,163,184,0.6)', borderRadius: 2, margin: '10px auto 0' }} />
 
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>训练总结</div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(203,213,225,0.9)' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>训练总结</div>
+          <div style={{ fontSize: 12, color: 'rgba(100,116,139,0.9)', marginTop: 2 }}>
             时长 {Math.round(duration / 60)} 分钟
           </div>
         </div>
@@ -536,9 +539,9 @@ function FinishSheet({
           {hrStats && (
             <div style={{
               padding: '12px 14px', borderRadius: 12,
-              background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)',
+              background: 'rgba(91,99,215,0.08)', border: '1px solid rgba(91,99,215,0.2)',
             }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(167,139,250,0.6)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 10 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(79,70,229,0.65)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 10 }}>
                 心率总结 · HR Summary
               </div>
               <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
@@ -549,10 +552,10 @@ function FinishSheet({
                 ].map(s => (
                   <div key={s.label} style={{
                     flex: 1, textAlign: 'center', padding: '8px',
-                    background: 'rgba(255,255,255,0.05)', borderRadius: 9,
+                    background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(203,213,225,0.75)', borderRadius: 9,
                   }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: '#c4b5fd', fontVariantNumeric: 'tabular-nums' }}>{s.value}</div>
-                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>{s.label} BPM</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#4f46e5', fontVariantNumeric: 'tabular-nums' }}>{s.value}</div>
+                    <div style={{ fontSize: 9, color: 'rgba(100,116,139,0.88)', marginTop: 2 }}>{s.label} BPM</div>
                   </div>
                 ))}
               </div>
@@ -580,32 +583,34 @@ function FinishSheet({
 
           {/* RPE */}
           <div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>RPE 强度感知</div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(100,116,139,0.92)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>RPE 强度感知</div>
             <div style={{ display: 'flex', gap: 5 }}>
               {[5, 6, 7, 8, 9, 10].map(v => (
                 <button key={v} onClick={() => setRpe(v)} style={{
-                  flex: 1, height: 42, borderRadius: 10, border: 'none',
-                  background: rpe === v ? '#7C3AED' : 'rgba(255,255,255,0.06)',
-                  color: rpe === v ? '#fff' : 'rgba(255,255,255,0.4)',
+                  flex: 1, height: 42, borderRadius: 10,
+                  background: rpe === v ? '#5b63d7' : 'rgba(241,245,249,0.95)',
+                  color: rpe === v ? '#fff' : 'rgba(71,85,105,0.9)',
                   fontSize: 16, fontWeight: 700, cursor: 'pointer', transition: 'all 0.12s',
+                  border: rpe === v ? '1px solid rgba(79,70,229,0.7)' : '1px solid rgba(203,213,225,0.9)',
                 }}>{v}</button>
               ))}
             </div>
-            <div style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 6 }}>
+            <div style={{ textAlign: 'center', fontSize: 11, color: 'rgba(71,85,105,0.88)', marginTop: 6 }}>
               {RPE_HINTS[rpe] || ''}
             </div>
           </div>
 
           {/* 整体表现 */}
           <div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>整体表现</div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(100,116,139,0.92)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>整体表现</div>
             <div style={{ display: 'flex', gap: 6 }}>
               {['良好', '一般', '较差'].map(p => (
                 <button key={p} onClick={() => setPerf(p)} style={{
-                  flex: 1, height: 38, borderRadius: 10, border: 'none',
-                  background: perf === p ? '#7C3AED' : 'rgba(255,255,255,0.06)',
-                  color: perf === p ? '#fff' : 'rgba(255,255,255,0.4)',
+                  flex: 1, height: 38, borderRadius: 10,
+                  background: perf === p ? '#5b63d7' : 'rgba(241,245,249,0.95)',
+                  color: perf === p ? '#fff' : 'rgba(71,85,105,0.9)',
                   fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.12s',
+                  border: perf === p ? '1px solid rgba(79,70,229,0.7)' : '1px solid rgba(203,213,225,0.9)',
                 }}>{p}</button>
               ))}
             </div>
@@ -613,35 +618,35 @@ function FinishSheet({
 
           {/* 笔记 */}
           <div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>教练笔记（选填）</div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(100,116,139,0.92)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>教练笔记（选填）</div>
             <textarea
               value={note} onChange={e => setNote(e.target.value)}
               rows={2} placeholder="下次注意离心控制..."
               style={{
                 width: '100%', padding: '10px 12px', borderRadius: 10, resize: 'none',
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
-                color: '#fff', fontSize: 12, fontFamily: 'inherit', outline: 'none',
+                background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(203,213,225,0.9)',
+                color: '#0f172a', fontSize: 12, fontFamily: 'inherit', outline: 'none',
               }}
             />
           </div>
 
           {/* 课后教练笔记 */}
           <div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>课后总结（选填）</div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(100,116,139,0.92)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>课后总结（选填）</div>
             <textarea
               value={coachNotes} onChange={e => setCoachNotes(e.target.value)}
               rows={2} placeholder="记录客户今日表现、需要改进的地方..."
               style={{
                 width: '100%', padding: '10px 12px', borderRadius: 10, resize: 'none',
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
-                color: '#fff', fontSize: 12, fontFamily: 'inherit', outline: 'none',
+                background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(203,213,225,0.9)',
+                color: '#0f172a', fontSize: 12, fontFamily: 'inherit', outline: 'none',
               }}
             />
           </div>
 
           {/* 身体数据更新 */}
           <div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>体测数据（选填）</div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(100,116,139,0.92)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>体测数据（选填）</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               <div>
                 <input
@@ -652,11 +657,11 @@ function FinishSheet({
                   placeholder="体重"
                   style={{
                     width: '100%', padding: '10px 10px', borderRadius: 8, fontSize: 12,
-                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
-                    color: '#fff', outline: 'none', boxSizing: 'border-box',
+                    background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(203,213,225,0.9)',
+                    color: '#0f172a', outline: 'none', boxSizing: 'border-box',
                   }}
                 />
-                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginTop: 3, textAlign: 'center' }}>kg</div>
+                <div style={{ fontSize: 8, color: 'rgba(100,116,139,0.8)', marginTop: 3, textAlign: 'center' }}>kg</div>
               </div>
               <div>
                 <input
@@ -667,11 +672,11 @@ function FinishSheet({
                   placeholder="体脂率"
                   style={{
                     width: '100%', padding: '10px 10px', borderRadius: 8, fontSize: 12,
-                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
-                    color: '#fff', outline: 'none', boxSizing: 'border-box',
+                    background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(203,213,225,0.9)',
+                    color: '#0f172a', outline: 'none', boxSizing: 'border-box',
                   }}
                 />
-                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginTop: 3, textAlign: 'center' }}>%</div>
+                <div style={{ fontSize: 8, color: 'rgba(100,116,139,0.8)', marginTop: 3, textAlign: 'center' }}>%</div>
               </div>
               <div>
                 <input
@@ -681,11 +686,11 @@ function FinishSheet({
                   placeholder="静息心率"
                   style={{
                     width: '100%', padding: '10px 10px', borderRadius: 8, fontSize: 12,
-                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
-                    color: '#fff', outline: 'none', boxSizing: 'border-box',
+                    background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(203,213,225,0.9)',
+                    color: '#0f172a', outline: 'none', boxSizing: 'border-box',
                   }}
                 />
-                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginTop: 3, textAlign: 'center' }}>bpm</div>
+                <div style={{ fontSize: 8, color: 'rgba(100,116,139,0.8)', marginTop: 3, textAlign: 'center' }}>bpm</div>
               </div>
             </div>
           </div>
@@ -694,8 +699,8 @@ function FinishSheet({
         <div style={{ padding: '10px 20px 18px', display: 'flex', gap: 8 }}>
           <button onClick={onCancel} style={{
             flex: 1, height: 44, borderRadius: 12,
-            background: 'rgba(255,255,255,0.06)', border: 'none',
-            color: 'rgba(255,255,255,0.45)', fontSize: 13, cursor: 'pointer',
+            background: 'rgba(241,245,249,0.95)', border: '1px solid rgba(203,213,225,0.9)',
+            color: 'rgba(71,85,105,0.92)', fontSize: 13, cursor: 'pointer',
           }}>取消</button>
           <button onClick={() => {
             const postAssessment = {
@@ -706,7 +711,7 @@ function FinishSheet({
             onSave(rpe, perf, note, coachNotes, postAssessment);
           }} style={{
             flex: 2, height: 44, borderRadius: 12,
-            background: '#7C3AED', border: 'none',
+            background: '#5b63d7', border: 'none',
             color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
           }}>完成并记录</button>
         </div>
@@ -886,6 +891,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
     if (nsi === -1) return '';
     return curEx.restSeconds > 0 ? `完成后休息 ${curEx.restSeconds}s` : '';
   })();
+  const mainBtnStateClass = phase === 'rest' ? 'state-rest' : (curSetIdx === -1 ? 'state-done' : 'state-start');
 
   const nextEx = exercises[curIdx + 1];
   const liveWeight = Number((client as any)?.profile?.weight ?? (client as any)?.weight ?? 65);
@@ -893,14 +899,14 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 100,
-      background: '#0F0F12', color: '#fff',
+      background: '#eef1f7', color: '#111827',
       display: 'flex', flexDirection: 'column',
       fontFamily: "-apple-system, 'PingFang SC', sans-serif",
     }}>
 
       {/* ── 进度条（最顶部 3px）── */}
-      <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', flexShrink: 0 }}>
-        <div style={{ height: '100%', width: `${progPct}%`, background: '#7C3AED', transition: 'width 0.5s' }} />
+      <div style={{ height: 3, background: 'rgba(214,220,233,0.9)', flexShrink: 0 }}>
+        <div style={{ height: '100%', width: `${progPct}%`, background: '#5b63d7', transition: 'width 0.5s' }} />
       </div>
 
       {/* ── 主体：左栏 + 右主区 ── */}
@@ -910,16 +916,17 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
         {/* ── 左栏：动作列表 ── */}
         <div style={{
           width: 220, flexShrink: 0,
-          borderRight: '1px solid rgba(255,255,255,0.07)',
+          borderRight: '1px solid rgba(188,198,218,0.65)',
+          background: '#f7f9fd',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}>
           {/* 客户名 + 进度 */}
           <div style={{
             padding: '10px 14px', flexShrink: 0,
-            borderBottom: '1px solid rgba(255,255,255,0.07)',
+            borderBottom: '1px solid rgba(188,198,218,0.65)',
           }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)' }}>{client.name}</div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2, fontFamily: 'monospace' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>{client.name}</div>
+            <div style={{ fontSize: 10, color: 'rgba(99,109,132,0.78)', marginTop: 2, fontFamily: 'monospace' }}>
               {doneSets}/{totalSets} 组 · {fmt(elapsed)}
             </div>
           </div>
@@ -931,7 +938,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                 <div style={{
                   padding: '6px 14px 2px',
                   fontSize: 9, fontWeight: 700, letterSpacing: '.12em',
-                  textTransform: 'uppercase', color: 'rgba(255,255,255,0.2)',
+                  textTransform: 'uppercase', color: 'rgba(99,109,132,0.68)',
                 }}>{sec.title}</div>
                 {sec.exs.map(({ ex, idx }) => {
                   const isActive = idx === curIdx;
@@ -945,16 +952,16 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                       style={{
                         width: '100%', textAlign: 'left',
                         padding: '7px 14px', border: 'none',
-                        background: isActive ? 'rgba(124,58,237,0.18)' : 'transparent',
+                        background: isActive ? 'rgba(91,99,215,0.14)' : 'transparent',
                         cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 7,
                         position: 'relative', transition: 'background 0.1s',
-                        opacity: isDone ? 0.4 : 1,
+                        opacity: isDone ? 0.62 : 1,
                       }}
                     >
                       {isActive && (
                         <div style={{
                           position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)',
-                          width: 2, height: '55%', background: '#7C3AED',
+                          width: 2, height: '55%', background: '#5b63d7',
                           borderRadius: '0 2px 2px 0',
                         }} />
                       )}
@@ -975,17 +982,17 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                       ) : (
                         <div style={{
                           width: 5, height: 5, borderRadius: '50%', flexShrink: 0, marginTop: 5,
-                          background: isActive ? 'rgba(124,58,237,0.8)' : 'rgba(255,255,255,0.18)',
+                          background: isActive ? 'rgba(91,99,215,0.85)' : 'rgba(148,163,184,0.72)',
                         }} />
                       )}
                       {/* 动作名 + 进度 */}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{
                           fontSize: 11, fontWeight: 500,
-                          color: isActive ? '#fff' : 'rgba(255,255,255,0.5)',
+                          color: isActive ? '#111827' : 'rgba(75,85,109,0.8)',
                           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                         }}>{ex.name}</div>
-                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', marginTop: 1, fontFamily: 'monospace' }}>
+                        <div style={{ fontSize: 9, color: 'rgba(100,116,139,0.72)', marginTop: 1, fontFamily: 'monospace' }}>
                           {doneCount}/{ex.sets.length}组{ex.rhythm ? ` · ${ex.rhythm}` : ''}
                         </div>
                       </div>
@@ -1001,13 +1008,13 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
             onClick={() => setPhase('finish')}
             style={{
               margin: 8, padding: '8px', borderRadius: 10,
-              background: 'rgba(239,68,68,0.1)', border: 'none', cursor: 'pointer',
-              fontSize: 11, fontWeight: 600, color: 'rgba(248,113,113,0.8)',
+              background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.18)', cursor: 'pointer',
+              fontSize: 11, fontWeight: 600, color: 'rgba(185,28,28,0.8)',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
               flexShrink: 0,
             }}
           >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="rgba(248,113,113,0.8)">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="rgba(185,28,28,0.8)">
               <rect x="3" y="3" width="18" height="18" rx="2" />
             </svg>
             结束训练
@@ -1015,12 +1022,12 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
         </div>
 
         {/* ── 中间主区 ── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, borderRight: '1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, borderRight: '1px solid rgba(188,198,218,0.65)' }}>
 
           {/* 模块信息栏 */}
           <div style={{
             padding: '9px 20px', flexShrink: 0,
-            borderBottom: '1px solid rgba(255,255,255,0.07)',
+            borderBottom: '1px solid rgba(188,198,218,0.65)',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -1033,19 +1040,19 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                 }}>{curEx.groupTag}</span>
               )}
               <span style={{
-                fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 500,
+                fontSize: 11, color: 'rgba(75,85,109,0.78)', fontWeight: 500,
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}>{curEx?.sectionTitle}</span>
               {curEx?.sectionFormat && (
                 <span style={{
-                  fontSize: 9, color: 'rgba(255,255,255,0.25)',
-                  border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '1px 5px',
+                  fontSize: 9, color: 'rgba(100,116,139,0.82)',
+                  border: '1px solid rgba(203,213,225,0.9)', borderRadius: 4, padding: '1px 5px',
                 }}>
                   {curEx.sectionFormat}
                 </span>
               )}
             </div>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', flexShrink: 0 }}>
+            <span style={{ fontSize: 11, color: 'rgba(100,116,139,0.82)', fontFamily: 'monospace', flexShrink: 0 }}>
               {fmt(elapsed)}
             </span>
           </div>
@@ -1056,9 +1063,10 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
             {/* 上：动作信息区 */}
             <div style={{
               width: '100%', flexShrink: 0, padding: '18px 20px',
-              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              borderBottom: '1px solid rgba(188,198,218,0.65)',
               display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto',
               maxHeight: '52%',
+              background: 'rgba(255,255,255,0.68)',
             }}>
               {curEx ? (
                 <>
@@ -1068,9 +1076,9 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                       onClick={() => setNotesOpen(notesOpen === curIdx ? null : curIdx)}
                       style={{
                         padding: '6px 10px', borderRadius: 8,
-                        background: curEx.notes ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
-                        border: curEx.notes ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.1)',
-                        color: curEx.notes ? '#4ade80' : 'rgba(255,255,255,0.5)',
+                        background: curEx.notes ? 'rgba(34,197,94,0.14)' : 'rgba(241,245,249,0.95)',
+                        border: curEx.notes ? '1px solid rgba(34,197,94,0.34)' : '1px solid rgba(203,213,225,0.9)',
+                        color: curEx.notes ? '#15803d' : 'rgba(71,85,105,0.9)',
                         fontSize: 10, fontWeight: 600, cursor: 'pointer',
                         transition: 'all 0.15s',
                       }}
@@ -1092,8 +1100,8 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                         rows={2}
                         style={{
                           width: '100%', padding: '8px 10px', borderRadius: 8, resize: 'none',
-                          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(34,197,94,0.2)',
-                          color: '#fff', fontSize: 11, fontFamily: 'inherit', outline: 'none',
+                          background: 'rgba(255,255,255,0.92)', border: '1px solid rgba(34,197,94,0.22)',
+                          color: '#0f172a', fontSize: 11, fontFamily: 'inherit', outline: 'none',
                         }}
                       />
                     </div>
@@ -1120,10 +1128,10 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                   <div>
                     <div style={{
                       fontSize: 'clamp(1.6rem, 3vw, 2.4rem)',
-                      fontWeight: 900, color: '#fff', lineHeight: 1.1, letterSpacing: '-.02em',
+                      fontWeight: 900, color: '#0f172a', lineHeight: 1.1, letterSpacing: '-.02em',
                     }}>{curEx.name}</div>
                     {curEx.nameEn && (
-                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.28)', marginTop: 4, fontWeight: 300 }}>
+                      <div style={{ fontSize: 12, color: 'rgba(55,65,81,0.8)', marginTop: 4, fontWeight: 300 }}>
                         {curEx.nameEn}
                       </div>
                     )}
@@ -1133,10 +1141,10 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                   {curEx.cue && (
                     <div style={{
                       padding: '11px 14px', borderRadius: 12,
-                      background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.22)',
+                      background: 'rgba(91,99,215,0.1)', border: '1px solid rgba(91,99,215,0.22)',
                     }}>
-                      <div style={{ fontSize: 8, fontWeight: 700, color: 'rgba(167,139,250,0.5)', letterSpacing: '.14em', textTransform: 'uppercase', marginBottom: 5 }}>CUE</div>
-                      <div style={{ fontSize: 13, color: '#c4b5fd', fontWeight: 500, lineHeight: 1.4 }}>{curEx.cue}</div>
+                      <div style={{ fontSize: 8, fontWeight: 700, color: 'rgba(79,70,229,0.62)', letterSpacing: '.14em', textTransform: 'uppercase', marginBottom: 5 }}>CUE</div>
+                      <div style={{ fontSize: 13, color: '#4338ca', fontWeight: 600, lineHeight: 1.45 }}>{curEx.cue}</div>
                     </div>
                   )}
 
@@ -1146,7 +1154,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                       <button
                         onClick={() => setDyOpen(v => !v)}
                         style={{
-                          fontSize: 10, color: 'rgba(255,255,255,0.3)',
+                          fontSize: 10, color: 'rgba(71,85,105,0.82)',
                           background: 'none', border: 'none', cursor: 'pointer',
                           display: 'flex', alignItems: 'center', gap: 4,
                           transition: 'color 0.12s', padding: '2px 0',
@@ -1167,7 +1175,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                   )}
                 </>
               ) : (
-                <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 14, marginTop: 40, textAlign: 'center' }}>
+                <div style={{ color: 'rgba(148,163,184,0.78)', fontSize: 14, marginTop: 40, textAlign: 'center' }}>
                   从左侧选择动作
                 </div>
               )}
@@ -1180,7 +1188,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                 padding: '10px 16px 6px',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
               }}>
-                <div style={{ display: 'flex', gap: 8, fontSize: 9, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)' }}>
+                <div style={{ display: 'flex', gap: 8, fontSize: 9, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(99,109,132,0.72)' }}>
                   <span style={{ width: 20 }}>#</span>
                   <span style={{ width: 58, textAlign: 'center' }}>重量</span>
                   <span style={{ width: 14 }} />
@@ -1188,7 +1196,17 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                 </div>
                 <button
                   onClick={addSet}
-                  style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', background: 'none', border: 'none', cursor: 'pointer' }}
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: '#4f46e5',
+                    background: 'rgba(91,99,215,0.12)',
+                    border: '1px solid rgba(91,99,215,0.28)',
+                    borderRadius: 8,
+                    padding: '5px 10px',
+                    cursor: 'pointer',
+                    transition: 'all 0.12s',
+                  }}
                 >+ 加组</button>
               </div>
 
@@ -1226,7 +1244,8 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
           {/* ── 底部操作栏 ── */}
           <div style={{
             padding: '10px 16px 12px', flexShrink: 0,
-            borderTop: '1px solid rgba(255,255,255,0.07)',
+            borderTop: '1px solid rgba(188,198,218,0.65)',
+            background: 'rgba(255,255,255,0.72)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {/* 上一个 */}
@@ -1235,8 +1254,8 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                 disabled={curIdx === 0}
                 style={{
                   width: 42, height: 50, borderRadius: 12,
-                  background: 'rgba(255,255,255,0.06)', border: 'none',
-                  color: curIdx === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.55)',
+                  background: 'rgba(226,232,240,0.9)', border: 'none',
+                  color: curIdx === 0 ? 'rgba(148,163,184,0.7)' : 'rgba(75,85,109,0.9)',
                   cursor: curIdx === 0 ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
@@ -1249,12 +1268,9 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
               {/* 主按钮 */}
               <button
                 onClick={completeSet}
+                className={`sess-main-b ${mainBtnStateClass}`}
                 style={{
-                  flex: 1, height: 50, borderRadius: 14,
-                  background: curSetIdx === -1 ? 'rgba(34,197,94,0.25)' : '#7C3AED',
-                  border: 'none', cursor: 'pointer', color: '#fff',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
-                  transition: 'all 0.15s',
+                  border: 'none', cursor: 'pointer',
                 }}
               >
                 <span style={{ fontSize: 14, fontWeight: 700 }}>{mainBtnLabel}</span>
@@ -1267,8 +1283,8 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
                 disabled={curIdx >= exercises.length - 1}
                 style={{
                   width: 42, height: 50, borderRadius: 12,
-                  background: 'rgba(255,255,255,0.06)', border: 'none',
-                  color: curIdx >= exercises.length - 1 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.55)',
+                  background: 'rgba(226,232,240,0.9)', border: 'none',
+                  color: curIdx >= exercises.length - 1 ? 'rgba(148,163,184,0.7)' : 'rgba(75,85,109,0.9)',
                   cursor: curIdx >= exercises.length - 1 ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
@@ -1282,9 +1298,9 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
             {/* 下一个动作预告 */}
             {nextEx && (
               <div style={{
-                textAlign: 'center', marginTop: 5, fontSize: 10, color: 'rgba(255,255,255,0.25)',
+                textAlign: 'center', marginTop: 5, fontSize: 10, color: 'rgba(100,116,139,0.82)',
               }}>
-                下一个：<span style={{ color: 'rgba(255,255,255,0.45)' }}>{nextEx.name}</span>
+                下一个：<span style={{ color: 'rgba(75,85,109,0.9)' }}>{nextEx.name}</span>
                 {nextEx.groupTag && (
                   <span style={{ color: `${tagColor(nextEx.groupTag)}80`, fontWeight: 700, marginLeft: 4 }}>
                     {nextEx.groupTag}
@@ -1320,7 +1336,7 @@ export function CoachSessionView({ client, onClose, onRecordSession, onCancelSes
           flexShrink: 0,
           padding: '14px 14px 12px',
           overflow: 'hidden',
-          background: 'rgba(255,255,255,0.01)',
+          background: 'rgba(255,255,255,0.34)',
           display: 'flex',
         }}>
           <HRTopBar hr={hr} elapsedSecs={elapsed} weightKg={Number.isFinite(liveWeight) && liveWeight > 0 ? liveWeight : 65} />
