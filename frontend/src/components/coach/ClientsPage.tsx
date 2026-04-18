@@ -147,7 +147,7 @@ export function ClientsPage({
     sleep_hours: '',
     training_age_months: '',
   });
-  const [showTrainingHistory, setShowTrainingHistory] = useState(false);
+  const [showTrainingHistory, setShowTrainingHistory] = useState(true);
 
   // 招募码和待审核问卷
   const [pendingSurveys, setPendingSurveys] = useState<any[]>([]);
@@ -724,12 +724,21 @@ export function ClientsPage({
           <div className="section-cap">• BODY COMPOSITION METRICS（身体成分指标）</div>
           <div className="metrics-grid">
             {metricCards.map((m, idx) => (
-              <div key={`${idx}-${metricLabels[idx]}`} className="metric-card">
+              <div
+                key={`${idx}-${metricLabels[idx]}`}
+                className="metric-card"
+                style={{
+                  minHeight: idx < 4 ? 100 : undefined,
+                  background: idx < 4 ? 'rgba(255,255,255,0.7)' : 'rgba(248,249,252,0.55)',
+                  opacity: idx >= 4 ? 0.85 : 1,
+                }}
+              >
                 <div className="metric-k">{metricLabelMap[metricLabels[idx]] || metricLabels[idx]}</div>
                 <div 
                   className="metric-v" 
                   style={{ 
                     color: m.tone,
+                    fontSize: idx < 4 ? 34 : 24,
                     display: 'flex',
                     justifyContent: 'flex-end',
                     alignItems: 'baseline'
@@ -847,7 +856,11 @@ export function ClientsPage({
 
             <div className="assessment-history-list">
               {activeAssessments.slice().reverse().map((a, idx) => (
-                <div className="assessment-item-row" key={`${a.date}-${idx}`}>
+                <div
+                  className="assessment-item-row"
+                  key={`${a.date}-${idx}`}
+                  style={{ borderLeft: '3px solid rgba(93,102,237,.35)', paddingLeft: 10 }}
+                >
                   <span>{a.date}</span>
                   <span>体脂 {typeof a.bf_pct === 'number' ? `${a.bf_pct}%` : '--'}</span>
                   <span>骨骼肌 {typeof a.smm_pct === 'number' ? `${a.smm_pct}%` : '--'}</span>
@@ -888,6 +901,20 @@ export function ClientsPage({
             <div className="assessment-grid">
               {isKineticChain(activeClient.membershipLevel) ? (
                 <>
+                  <div style={{
+                    gridColumn: '1 / -1',
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: '#8a90a6',
+                    letterSpacing: '.14em',
+                    textTransform: 'uppercase',
+                    padding: '10px 0 4px',
+                    borderBottom: '1px solid rgba(216,221,236,.4)',
+                    marginBottom: 2,
+                  }}>
+                    骨盆与代偿
+                  </div>
+
                   <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
                     <span>当前训练阶段</span>
                     <select
@@ -957,6 +984,20 @@ export function ClientsPage({
                     />
                   </div>
 
+                  <div style={{
+                    gridColumn: '1 / -1',
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: '#8a90a6',
+                    letterSpacing: '.14em',
+                    textTransform: 'uppercase',
+                    padding: '10px 0 4px',
+                    borderBottom: '1px solid rgba(216,221,236,.4)',
+                    marginBottom: 2,
+                  }}>
+                    关节评估
+                  </div>
+
                   <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
                     <span>骨盆控制能力</span>
                     <select
@@ -1015,6 +1056,20 @@ export function ClientsPage({
                     </select>
                   </div>
 
+                  <div style={{
+                    gridColumn: '1 / -1',
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: '#8a90a6',
+                    letterSpacing: '.14em',
+                    textTransform: 'uppercase',
+                    padding: '10px 0 4px',
+                    borderBottom: '1px solid rgba(216,221,236,.4)',
+                    marginBottom: 2,
+                  }}>
+                    禁忌与备注
+                  </div>
+
                   <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
                     <span>禁忌动作模式</span>
                     <input
@@ -1037,6 +1092,20 @@ export function ClientsPage({
                 </>
               ) : (
                 <>
+                  <div style={{
+                    gridColumn: '1 / -1',
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: '#8a90a6',
+                    letterSpacing: '.14em',
+                    textTransform: 'uppercase',
+                    padding: '10px 0 4px',
+                    borderBottom: '1px solid rgba(216,221,236,.4)',
+                    marginBottom: 2,
+                  }}>
+                    训练背景
+                  </div>
+
                   <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
                     <span>训练年限</span>
                     <input
@@ -1095,6 +1164,20 @@ export function ClientsPage({
                     />
                   </div>
 
+                  <div style={{
+                    gridColumn: '1 / -1',
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: '#8a90a6',
+                    letterSpacing: '.14em',
+                    textTransform: 'uppercase',
+                    padding: '10px 0 4px',
+                    borderBottom: '1px solid rgba(216,221,236,.4)',
+                    marginBottom: 2,
+                  }}>
+                    伤病限制
+                  </div>
+
                   <div className="habit-item" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
                     <span>受伤史</span>
                     <input
@@ -1123,63 +1206,201 @@ export function ClientsPage({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="section-cap">• MEMBERSHIP TIERS（会员等级）</div>
-            <div className="tiers-stack">
+            {/* 档位分段选择器 */}
+            <div style={{
+              background: 'rgba(241,243,248,.9)',
+              borderRadius: 14,
+              padding: 4,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 3,
+              marginTop: 10,
+            }}>
               {tierOrder.map((key) => {
                 const item = tierMeta[key];
                 const on = key === activeTier;
                 return (
-                  <div key={key} className="tier-item">
-                    <button
-                      type="button"
-                      className={`tier-card tone-${key} ${on ? 'on' : ''}`}
-                      onClick={() => switchTier(key)}
-                      disabled={tierSwitchingId === activeClient?.id}
-                      style={{ opacity: tierSwitchingId === activeClient?.id ? 0.6 : 1, cursor: tierSwitchingId === activeClient?.id ? 'not-allowed' : 'pointer' }}
-                    >
-                      <div className="tier-icon">◆</div>
-                      <div>
-                        <div className="tier-name">{item.cn} / {item.label}</div>
-                        <div className="tier-sub">{item.cn}</div>
-                      </div>
-                    </button>
-
-                    {on && (
-                      <div className={`tier-feature tier-feature-inline tone-${key}`}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div className="tier-feature-title">{item.cn} / {item.label} ●</div>
-                          <div style={{ fontSize: 30 }}>◈</div>
-                        </div>
-                        <div className="tier-compare-list">
-                          <div>体脂率标准：{standards.bf} ｜ 当前：{bfText}</div>
-                          <div>心率目标：{standards.rhr} ｜ 当前：{rhrText}</div>
-                          <div>力量基准：{standards.strength} ｜ 当前：{strengthText}</div>
-                          <div>{score.tier === 'ultra' ? '已达 Ultra 档。' : `距下一档差 ${score.gap_to_next} 分，建议优先提升 ${score.weakest}`}</div>
-                        </div>
-                        <Button
-                          type="button"
-                          className="w-full tier-open-btn"
-                          onClick={() => {
-                            const currentIndex = tierOrder.indexOf(key);
-                            if (currentIndex < tierOrder.length - 1) {
-                              switchTier(tierOrder[currentIndex + 1]);
-                            }
-                          }}
-                          disabled={tierSwitchingId === activeClient?.id || tierOrder.indexOf(key) >= tierOrder.length - 1}
-                          style={{
-                            marginTop: 14,
-                            opacity: tierSwitchingId === activeClient?.id ? 0.6 : 1,
-                            cursor: tierSwitchingId === activeClient?.id || tierOrder.indexOf(key) >= tierOrder.length - 1 ? 'not-allowed' : 'pointer',
-                          }}
-                        >
-                          {tierSwitchingId === activeClient?.id ? '保存中...' : (tierOrder.indexOf(key) < tierOrder.length - 1
-                            ? `升级至 ${tierMeta[tierOrder[tierOrder.indexOf(key) + 1]].cn}`
-                            : '已达最高档位')}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => switchTier(key)}
+                    disabled={tierSwitchingId === activeClient?.id}
+                    style={{
+                      padding: '8px 4px',
+                      borderRadius: 10,
+                      border: on ? `1.5px solid ${item.ring}` : '1.5px solid transparent',
+                      background: on ? '#fff' : 'transparent',
+                      cursor: tierSwitchingId === activeClient?.id ? 'not-allowed' : 'pointer',
+                      transition: 'all .2s cubic-bezier(.25,.46,.45,.94)',
+                      boxShadow: on ? '0 2px 10px rgba(0,0,0,.08), inset 0 1px 0 rgba(255,255,255,.9)' : 'none',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 4,
+                      opacity: tierSwitchingId === activeClient?.id ? 0.6 : 1,
+                    }}
+                  >
+                    {/* 档位图标小圆点 */}
+                    <div style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: on ? item.accent : 'rgba(148,163,184,.5)',
+                      transition: 'background .2s',
+                      boxShadow: on ? `0 0 6px ${item.accent}60` : 'none',
+                    }} />
+                    <div style={{
+                      fontSize: 10,
+                      fontWeight: on ? 800 : 600,
+                      color: on ? item.accent : '#94a3b8',
+                      letterSpacing: '.02em',
+                      transition: 'color .2s',
+                      textAlign: 'center',
+                      lineHeight: 1.2,
+                    }}>
+                      {item.label}
+                    </div>
+                    <div style={{
+                      fontSize: 9,
+                      color: on ? item.accent : '#b0bec5',
+                      fontWeight: 600,
+                      opacity: on ? 0.8 : 0.6,
+                    }}>
+                      {item.cn}
+                    </div>
+                  </button>
                 );
               })}
+            </div>
+
+            {/* 当前档位详情展开卡 */}
+            <div style={{
+              marginTop: 10,
+              borderRadius: 14,
+              border: `1px solid ${tier.ring}`,
+              background: tier.soft,
+              padding: '14px 16px',
+              animation: 'fadeSlideUp .22s cubic-bezier(.25,.46,.45,.94) both',
+            }}>
+              {/* 档位标题行 */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 12,
+              }}>
+                <div>
+                  <div style={{
+                    fontSize: 16,
+                    fontWeight: 800,
+                    color: tier.accent,
+                    letterSpacing: '.02em',
+                  }}>
+                    {tierMeta[activeTier].cn}
+                    <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 6, opacity: .7 }}>
+                      / {tierMeta[activeTier].label}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    {activeTier === 'professional' || activeTier === 'elite'
+                      ? '动力链训练体系'
+                      : '传统分化训练体系'}
+                  </div>
+                </div>
+                <div style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  background: tier.soft,
+                  border: `1px solid ${tier.ring}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 16,
+                  color: tier.accent,
+                }}>◆</div>
+              </div>
+
+              {/* 标准对比三行 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                {[
+                  { label: '体脂率标准', standard: standards.bf, current: bfText },
+                  { label: '心率目标', standard: standards.rhr, current: rhrText },
+                  { label: '力量基准', standard: standards.strength, current: strengthText },
+                ].map(row => (
+                  <div key={row.label} style={{
+                    background: 'rgba(255,255,255,.65)',
+                    borderRadius: 10,
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                  }}>
+                    <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, flexShrink: 0 }}>
+                      {row.label}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <span style={{ fontSize: 11, color: '#94a3b8' }}>{row.standard}</span>
+                      <span style={{ fontSize: 10, color: '#cbd5e1' }}>｜</span>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: row.current === '待录入' ? '#cbd5e1' : tier.accent,
+                      }}>
+                        {row.current}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 距下一档提示 */}
+              <div style={{
+                fontSize: 11,
+                color: '#64748b',
+                marginBottom: 12,
+                padding: '6px 10px',
+                background: 'rgba(255,255,255,.5)',
+                borderRadius: 8,
+                lineHeight: 1.5,
+              }}>
+                {score.tier === 'ultra'
+                  ? '✓ 已达到最高档位，继续保持训练质量。'
+                  : `距 ${score.tier === 'standard' ? 'Pro' : 'Elite'} 档差 ${score.gap_to_next} 分，优先提升：${dimLabelMap[score.weakest as keyof typeof dimLabelMap] || score.weakest}`}
+              </div>
+
+              {/* 升级按钮 */}
+              {tierOrder.indexOf(activeTier) < tierOrder.length - 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentIndex = tierOrder.indexOf(activeTier);
+                    if (currentIndex < tierOrder.length - 1) {
+                      switchTier(tierOrder[currentIndex + 1]);
+                    }
+                  }}
+                  disabled={tierSwitchingId === activeClient?.id}
+                  style={{
+                    width: '100%',
+                    height: 40,
+                    borderRadius: 10,
+                    border: `1px solid ${tier.ring}`,
+                    background: tier.accent,
+                    color: '#fff',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: tierSwitchingId === activeClient?.id ? 'not-allowed' : 'pointer',
+                    opacity: tierSwitchingId === activeClient?.id ? 0.6 : 1,
+                    transition: 'all .2s cubic-bezier(.25,.46,.45,.94)',
+                    letterSpacing: '.02em',
+                  }}
+                >
+                  {tierSwitchingId === activeClient?.id
+                    ? '保存中...'
+                    : `升级至 ${tierMeta[tierOrder[tierOrder.indexOf(activeTier) + 1]].cn}`}
+                </button>
+              )}
             </div>
           </div>
 
@@ -1426,21 +1647,22 @@ export function ClientsPage({
         }
 
         .clients-premium .head-profile {
-          border-radius: 16px;
+          border-radius: 14px;
           border: 1px solid var(--panel-border);
           background: var(--panel-bg);
           display: flex;
           align-items: center;
-          gap: 14px;
-          padding: 14px;
+          gap: 12px;
+          padding: 12px 14px;
           backdrop-filter: blur(8px);
           -webkit-backdrop-filter: blur(8px);
+          margin-bottom: 14px;
         }
 
         .clients-premium .avatar-orb {
-          width: 56px;
-          height: 56px;
-          border-radius: 999px;
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
           background: linear-gradient(140deg, rgba(31,37,56,.95), rgba(59,67,95,.92));
           color: #fff;
           display: flex;
@@ -1449,13 +1671,15 @@ export function ClientsPage({
           font-weight: 900;
           letter-spacing: .03em;
           flex-shrink: 0;
+          font-size: 15px;
         }
 
         .clients-premium .head-name {
-          font-size: 34px;
-          line-height: 1;
-          font-weight: 900;
+          font-size: 22px;
+          line-height: 1.1;
+          font-weight: 800;
           color: #1f2435;
+          letter-spacing: -.01em;
         }
 
         .clients-premium .tier-pill {
@@ -1492,7 +1716,7 @@ export function ClientsPage({
           margin-top: 10px;
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 10px;
+          gap: 8px;
         }
 
         .clients-premium .metric-card {
@@ -1598,12 +1822,13 @@ export function ClientsPage({
           border-radius: 10px;
           border: 1px solid rgba(216,221,236,.6);
           background: rgba(255,255,255,.6);
-          padding: 8px 10px;
+          padding: 10px 12px;
           font-size: 12px;
           color: #4e5873;
           display: grid;
-          grid-template-columns: 1.1fr repeat(4, minmax(0, 1fr));
-          gap: 8px;
+          grid-template-columns: 1.2fr repeat(4, minmax(0, 1fr));
+          gap: 10px;
+          align-items: center;
         }
 
         .clients-premium .trend-chart-box {
@@ -1645,262 +1870,6 @@ export function ClientsPage({
           font-weight: 800;
         }
 
-        .clients-premium .tiers-stack {
-          margin-top: 10px;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          width: 100%;
-        }
-
-        .clients-premium .tier-item {
-          width: 100%;
-        }
-
-        .clients-premium .tier-card {
-          width: 100%;
-          border-radius: 14px;
-          border: 1px solid var(--panel-border);
-          background: var(--panel-bg);
-          padding: 14px;
-          min-height: 70px;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          text-align: left;
-          color: #2f3850;
-          position: relative;
-          overflow: hidden;
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.74),
-            inset 0 -16px 22px rgba(148,160,199,.12),
-            var(--panel-shadow);
-          transition: transform .26s cubic-bezier(.2,.9,.2,1), border-color .24s ease, box-shadow .24s ease;
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-        }
-
-        .clients-premium .tier-card::before {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background: radial-gradient(circle at 1px 1px, rgba(104,116,154,.22) 1px, transparent 1.2px);
-          background-size: 12px 12px;
-          opacity: .22;
-          -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,.92) 0%, rgba(0,0,0,.24) 62%, transparent 88%);
-          mask-image: linear-gradient(180deg, rgba(0,0,0,.92) 0%, rgba(0,0,0,.24) 62%, transparent 88%);
-          pointer-events: none;
-        }
-
-        .clients-premium .tier-card::after {
-          content: '';
-          position: absolute;
-          left: 14px;
-          right: 14px;
-          bottom: 8px;
-          height: 10px;
-          border-radius: 999px;
-          background: linear-gradient(90deg, rgba(var(--tone-rgb), .66), rgba(var(--tone-rgb), .08));
-          filter: blur(10px);
-          opacity: .56;
-          pointer-events: none;
-        }
-
-        .clients-premium .tier-card.on {
-          border-color: rgba(var(--tone-rgb), .56);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.8),
-            inset 0 -14px 20px rgba(var(--tone-rgb), .12),
-            0 0 0 1px rgba(var(--tone-rgb), .34),
-            0 12px 22px rgba(41,54,88,.22),
-            0 0 20px rgba(var(--tone-rgb), .24);
-          transform: translateY(-1px);
-        }
-
-        .clients-premium .tier-card:hover {
-          transform: translateY(-1px);
-          border-color: rgba(var(--tone-rgb), .42);
-        }
-
-        .clients-premium .tier-card.tone-standard,
-        .clients-premium .tier-feature.tone-standard {
-          --tone-rgb: 142, 150, 170;
-        }
-
-        .clients-premium .tier-card.tone-advanced,
-        .clients-premium .tier-feature.tone-advanced {
-          --tone-rgb: 101, 216, 146;
-        }
-
-        .clients-premium .tier-card.tone-professional,
-        .clients-premium .tier-feature.tone-professional {
-          --tone-rgb: 255, 166, 84;
-        }
-
-        .clients-premium .tier-card.tone-elite,
-        .clients-premium .tier-feature.tone-elite {
-          --tone-rgb: 255, 106, 106;
-        }
-
-        .clients-premium .tier-icon {
-          width: 34px;
-          height: 34px;
-          border-radius: 10px;
-          background: rgba(var(--tone-rgb), .14);
-          color: rgba(var(--tone-rgb), .95);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 14px;
-          flex-shrink: 0;
-          box-shadow: inset 0 0 0 1px rgba(var(--tone-rgb), .34);
-        }
-
-        .clients-premium .tier-name {
-          font-size: 15px;
-          font-weight: 800;
-          line-height: 1.1;
-          color: rgba(var(--tone-rgb), .96);
-          text-shadow: 0 0 12px rgba(var(--tone-rgb), .3);
-        }
-
-        .clients-premium .tier-sub {
-          margin-top: 4px;
-          font-size: 11px;
-          color: rgba(63, 72, 96, .72);
-        }
-
-        .clients-premium .tier-feature {
-          margin-top: 10px;
-          border-radius: 16px;
-          border: 1px solid var(--panel-border);
-          background: var(--panel-bg-strong);
-          padding: 16px;
-          min-height: 250px;
-          color: rgba(46, 56, 79, .92);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.88),
-            inset 0 -16px 20px rgba(var(--tone-rgb), .08),
-            0 14px 24px rgba(52, 64, 96, .14),
-            0 0 20px rgba(var(--tone-rgb), .18);
-          position: relative;
-          overflow: hidden;
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-        }
-
-        .clients-premium .tier-feature::after {
-          content: '';
-          position: absolute;
-          left: 18px;
-          right: 18px;
-          bottom: 10px;
-          height: 14px;
-          border-radius: 999px;
-          background: linear-gradient(90deg, rgba(var(--tone-rgb), .76), rgba(var(--tone-rgb), .12));
-          filter: blur(11px);
-          opacity: .66;
-          pointer-events: none;
-        }
-
-        .clients-premium .tier-feature-inline {
-          animation: tierReveal .28s cubic-bezier(.22,.86,.32,1);
-          transform-origin: top center;
-        }
-
-        .clients-premium .tier-feature-title {
-          font-size: 28px;
-          font-weight: 900;
-          line-height: 1;
-          color: rgba(var(--tone-rgb), .98);
-          text-shadow: 0 0 14px rgba(var(--tone-rgb), .34);
-        }
-
-        .clients-premium .tier-compare-list {
-          margin-top: 10px;
-          display: grid;
-          gap: 6px;
-          font-size: 12px;
-          color: rgba(53, 62, 86, .9);
-        }
-
-        .clients-premium .tier-open-btn {
-          height: 40px;
-          border-radius: 999px;
-          border: 1px solid rgba(var(--tone-rgb), .46);
-          background: linear-gradient(135deg, rgba(var(--tone-rgb), .92), rgba(var(--tone-rgb), .72)) !important;
-          color: #fff !important;
-          font-weight: 800;
-          letter-spacing: .02em;
-          position: relative;
-          overflow: hidden;
-          box-shadow:
-            0 12px 22px rgba(var(--tone-rgb), .34),
-            0 0 18px rgba(var(--tone-rgb), .28),
-            inset 0 1px 0 rgba(255,255,255,.34);
-          transition: transform .2s ease, box-shadow .24s ease, filter .24s ease;
-          animation: tierBtnPulse 2.4s ease-in-out infinite;
-        }
-
-        .clients-premium .tier-open-btn::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: -42%;
-          width: 36%;
-          height: 100%;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,.36), transparent);
-          transform: skewX(-16deg);
-          transition: left .46s ease;
-        }
-
-        .clients-premium .tier-open-btn:hover {
-          transform: translateY(-1px);
-          box-shadow:
-            0 16px 28px rgba(var(--tone-rgb), .38),
-            0 0 22px rgba(var(--tone-rgb), .34),
-            inset 0 1px 0 rgba(255,255,255,.4);
-          filter: saturate(1.06);
-        }
-
-        .clients-premium .tier-open-btn:hover::before {
-          left: 112%;
-        }
-
-        .clients-premium .tier-open-btn:active {
-          transform: translateY(0) scale(.985);
-          box-shadow:
-            0 8px 16px rgba(var(--tone-rgb), .28),
-            0 0 14px rgba(var(--tone-rgb), .24),
-            inset 0 1px 0 rgba(255,255,255,.32);
-        }
-
-        @keyframes tierBtnPulse {
-          0%,
-          100% {
-            box-shadow:
-              0 12px 22px rgba(var(--tone-rgb), .34),
-              0 0 18px rgba(var(--tone-rgb), .28),
-              inset 0 1px 0 rgba(255,255,255,.34);
-          }
-          50% {
-            box-shadow:
-              0 14px 24px rgba(var(--tone-rgb), .4),
-              0 0 24px rgba(var(--tone-rgb), .34),
-              inset 0 1px 0 rgba(255,255,255,.38);
-          }
-        }
-
-        @keyframes tierReveal {
-          from {
-            opacity: 0;
-            transform: translateY(-8px) scale(.985);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
 
         @media (max-width: 1120px) {
           .clients-premium .clients-layout {

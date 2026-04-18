@@ -578,14 +578,38 @@ function FinishSheet({
           <div>
             <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(100,116,139,0.92)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>RPE 强度感知</div>
             <div style={{ display: 'flex', gap: 5 }}>
-              {[5, 6, 7, 8, 9, 10].map(v => (
-                <button key={v} onClick={() => setRpe(v)} style={{
-                  flex: 1, height: 42, borderRadius: 10,
-                  background: rpe === v ? '#5b63d7' : 'rgba(241,245,249,0.95)',
-                  color: rpe === v ? '#fff' : 'rgba(71,85,105,0.9)',
-                  fontSize: 16, fontWeight: 700, cursor: 'pointer', transition: 'all 0.12s',
-                  border: rpe === v ? '1px solid rgba(79,70,229,0.7)' : '1px solid rgba(203,213,225,0.9)',
-                }}>{v}</button>
+              {[
+                { v: 5, label: '很轻松' },
+                { v: 6, label: '还好' },
+                { v: 7, label: '适中' },
+                { v: 8, label: '有点累' },
+                { v: 9, label: '很累' },
+                { v: 10, label: '力竭' },
+              ].map(({ v, label }) => (
+                <button
+                  key={v}
+                  onClick={() => setRpe(v)}
+                  style={{
+                    flex: 1,
+                    height: 48,
+                    borderRadius: 10,
+                    border: 'none',
+                    background: rpe === v ? '#7C3AED' : 'rgba(255,255,255,0.06)',
+                    color: rpe === v ? '#fff' : 'rgba(255,255,255,0.4)',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.12s',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 2,
+                  }}
+                >
+                  <span style={{ fontSize: 14, fontWeight: 800 }}>{v}</span>
+                  <span style={{ fontSize: 9 }}>{label}</span>
+                </button>
               ))}
             </div>
             <div style={{ textAlign: 'center', fontSize: 11, color: 'rgba(71,85,105,0.88)', marginTop: 6 }}>

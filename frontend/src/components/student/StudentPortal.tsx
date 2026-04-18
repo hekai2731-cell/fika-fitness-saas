@@ -405,47 +405,14 @@ function TodayTab({
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,.45)',
           }}
         >
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 900, color: tierTheme.accent, letterSpacing: '.05em' }}>
               {`WEEK ${todayEntry.dayRef?.weekNum || 1}`} / 第{todayEntry.dayRef?.weekNum || 1}周
             </div>
           </div>
 
-          <div style={{ fontSize: 22, lineHeight: 1.1, fontWeight: 900, color: '#101a33', marginBottom: 8 }}>本周重点介绍</div>
-          <div style={{ fontSize: 11, fontWeight: 800, color: '#607089', letterSpacing: '.08em', marginBottom: 8 }}>WEEKLY FOCUS OVERVIEW</div>
-          <div style={{ fontSize: 14, color: '#3f4c64', lineHeight: 1.38, fontWeight: 600, marginBottom: 10 }}>
+          <div style={{ fontSize: 13, color: '#3f4c64', lineHeight: 1.38, fontWeight: 600, marginBottom: 10 }}>
             {weekFocusSummary}
-          </div>
-
-          <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-            <span
-              style={{
-                fontSize: 9,
-                fontWeight: 900,
-                letterSpacing: '.06em',
-                color: tierTheme.accent,
-                border: `1px solid ${tierTheme.ring}`,
-                background: tierTheme.soft,
-                borderRadius: 999,
-                padding: '4px 10px',
-              }}
-            >
-              VOLUME: MODERATE
-            </span>
-            <span
-              style={{
-                fontSize: 9,
-                fontWeight: 900,
-                letterSpacing: '.06em',
-                color: tierTheme.accent,
-                border: `1px solid ${tierTheme.ring}`,
-                background: tierTheme.soft,
-                borderRadius: 999,
-                padding: '4px 10px',
-              }}
-            >
-              INTENSITY: HIGH
-            </span>
           </div>
 
           <div style={{ position: 'relative', paddingLeft: 2 }}>
@@ -461,7 +428,7 @@ function TodayTab({
               }}
             />
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {timelineDays.map((day, idx) => {
                 const isToday = idx === todayIndex;
                 const isDone = todayIndex >= 0 && idx < todayIndex;
@@ -495,10 +462,10 @@ function TodayTab({
                     </div>
 
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 16, lineHeight: 1.2, fontWeight: 900, color: mainColor, marginBottom: 4 }}>
+                      <div style={{ fontSize: 14, lineHeight: 1.2, fontWeight: 700, color: mainColor, marginBottom: 4 }}>
                         {day.name || `${day.day} 训练`}
                       </div>
-                      <div style={{ fontSize: 13, lineHeight: 1.22, fontWeight: 800, color: subColor }}>
+                      <div style={{ fontSize: 11, lineHeight: 1.22, fontWeight: 800, color: subColor }}>
                         Focus: {day.focus || '待生成训练重点'}
                       </div>
                     </div>
@@ -573,6 +540,23 @@ function TodayTab({
         </div>
       )}
 
+      {todayPlan && !showFeedback && (
+        <button
+          type="button"
+          onClick={() => setShowFeedback(true)}
+          style={{
+            width: '100%', height: 48, borderRadius: 14,
+            background: 'linear-gradient(135deg, var(--p), var(--p4))',
+            border: 'none', color: '#fff',
+            fontSize: 14, fontWeight: 700,
+            marginTop: 16, cursor: 'pointer',
+            boxShadow: '0 4px 16px rgba(108,99,255,.3)',
+          }}
+        >
+          完成训练 · 提交反馈
+        </button>
+      )}
+
       {/* 课后反馈弹窗 */}
       {showFeedback && (
         <div
@@ -613,25 +597,39 @@ function TodayTab({
               疲劳度 / RPE
             </div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-              {[5, 6, 7, 8, 9, 10].map((v) => (
+              {[
+                { v: 5, label: '很轻松' },
+                { v: 6, label: '还好' },
+                { v: 7, label: '适中' },
+                { v: 8, label: '有点累' },
+                { v: 9, label: '很累' },
+                { v: 10, label: '力竭' },
+              ].map(({ v, label }) => (
                 <button
                   key={v}
                   type="button"
                   style={{
                     flex: 1,
-                    height: 44,
+                    height: 54,
                     borderRadius: 10,
                     border: '1.5px solid',
                     borderColor: feedbackRpe === v ? 'var(--p)' : 'var(--s200)',
                     background: feedbackRpe === v ? 'var(--p2)' : 'var(--s50)',
                     color: feedbackRpe === v ? 'var(--p)' : 'var(--s600)',
                     fontWeight: 700,
-                    fontSize: 16,
+                    fontSize: 11,
                     cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 3,
+                    transition: 'all .15s',
                   }}
                   onClick={() => setFeedbackRpe(v)}
                 >
-                  {v}
+                  <span style={{ fontSize: 14, fontWeight: 800 }}>{v}</span>
+                  <span style={{ fontSize: 10, opacity: 0.8 }}>{label}</span>
                 </button>
               ))}
             </div>
@@ -755,8 +753,14 @@ function ProgressTab({ client }: { client: Client }) {
             <span style={{ fontSize: 13, color: 'var(--s400)' }}> kg</span>
           </div>
           {weightDelta !== null && (
-            <div className="delta" style={{ color: weightDelta < 0 ? 'var(--g)' : 'var(--r)' }}>
-              {weightDelta > 0 ? '+' : ''}{weightDelta} kg
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+              <span style={{ fontSize: 16 }}>{weightDelta < 0 ? '↓' : '↑'}</span>
+              <span className="delta" style={{
+                color: weightDelta < 0 ? 'var(--g)' : 'var(--r)',
+                fontSize: 13, fontWeight: 700,
+              }}>
+                {weightDelta > 0 ? '+' : ''}{weightDelta} kg
+              </span>
             </div>
           )}
         </div>
@@ -1038,13 +1042,14 @@ function HistoryTab({ client }: { client: Client }) {
               <div
                 className="card-sm"
                 style={{ 
-                  padding: '12px 16px', 
+                  padding: '12px 14px', 
                   marginBottom: isExpanded ? 0 : 8, 
                   display: 'flex', 
                   alignItems: 'center', 
                   gap: 12,
                   cursor: 'pointer',
-                  borderRadius: isExpanded ? '12px 12px 0 0' : 12
+                  borderRadius: isExpanded ? '12px 12px 0 0' : 12,
+                  background: 'rgba(255,255,255,0.8)',
                 }}
                 onClick={() => toggleExpand(i)}
               >
@@ -1056,6 +1061,26 @@ function HistoryTab({ client }: { client: Client }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--s800)' }}>{s.day || ''} {s.performance || ''}</div>
                   <div style={{ fontSize: 10, color: 'var(--s400)', marginTop: 2 }}>{s.duration || 0}min{s.note ? ' · ' + s.note.slice(0, 24) : ''}</div>
+                  {(s.day || s.note) && (
+                    <div style={{
+                      fontSize: 12, color: 'var(--s600)',
+                      marginTop: 4, fontWeight: 600,
+                    }}>
+                      {s.day || '训练记录'}
+                      {s.duration ? ` · ${s.duration}分钟` : ''}
+                    </div>
+                  )}
+                  {s.note && (
+                    <div style={{
+                      fontSize: 11, color: 'var(--s400)',
+                      marginTop: 4, fontStyle: 'italic',
+                      paddingLeft: 8,
+                      borderLeft: '2px solid var(--s200)',
+                      lineHeight: 1.5,
+                    }}>
+                      {s.note}
+                    </div>
+                  )}
                 </div>
                 {s.rpe && (
                   <span className={`badge ${s.rpe >= 8 ? 'br' : s.rpe <= 4 ? 'bg_' : 'bp'}`}>RPE {s.rpe}</span>
@@ -1440,8 +1465,8 @@ function ProfileTab({ client }: { client: Client }) {
           ['会员档位', client.membershipLevel === 'elite' ? 'Elite 至尊' : client.membershipLevel === 'professional' ? 'Professional 专业' : client.membershipLevel === 'advanced' ? 'Advanced 进阶' : 'Standard 基础'],
           ['周期', client.weeks ? `${client.weeks}周` : '—'],
           ['路书码', client.roadCode || client.id],
-        ].map(([k, v]) => (
-          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--s100)', fontSize: 12 }}>
+        ].map(([k, v], idx) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--s100)', fontSize: 13, background: idx % 2 === 0 ? 'rgba(248,250,253,0.5)' : undefined }}>
             <span style={{ color: 'var(--s500)' }}>{k}</span>
             <span style={{ fontWeight: 500 }}>{v}</span>
           </div>
@@ -1641,9 +1666,18 @@ export function StudentPortal({ display, onLogout, client: propClient }: Student
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {client && (
-              <span className="badge bp" style={{ fontSize: 11 }}>
-                {client.name} · {isPro(client.membershipLevel) ? `动力链训练 / ${client.membershipLevel === 'elite' ? 'Elite' : 'Professional'}` : `传统训练 / ${client.membershipLevel === 'advanced' ? 'Advanced' : 'Standard'}`}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                  background: isPro(client.membershipLevel) ? '#CF7A25' : '#2F8A56',
+                }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--s800)' }}>
+                  {client.name}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--s400)' }}>
+                  {isPro(client.membershipLevel) ? '动力链' : '传统训练'}
+                </span>
+              </div>
             )}
             <button className="btn-ghost btn btn-sm" onClick={onLogout} type="button">
               退出
