@@ -2211,9 +2211,9 @@ export function PlanningPage({
           )}
         </div>
 
-        <div className="plan-workbench" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-          <div className="plan-panel-head" style={{ marginBottom: 10, flexShrink: 0 }}>
-            <div>
+        <div className="plan-workbench" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', minWidth: 0 }}>
+          <div className="plan-panel-head" style={{ marginBottom: 10, flexShrink: 0, minWidth: 0, width: '100%' }}>
+            <div style={{ minWidth: 0, width: '100%' }}>
               <div className="plan-panel-title">编辑训练内容 Session Details</div>
               <div style={{ marginTop: 4, fontSize: 11, color: 'var(--s500)', letterSpacing: '.03em', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
                 <span>状态 {draftStatusText} · 草稿 v{draftVersion} · 已发布 v{publishedVersion} · 发布时间 {publishedAtText}</span>
@@ -3649,6 +3649,8 @@ export function PlanningPage({
           height: calc(100vh - 200px);
           min-height: 620px;
           max-height: none;
+          overflow: hidden;
+          min-width: 0;
         }
 
         .planning-premium .plan-sidebar,
@@ -3667,9 +3669,10 @@ export function PlanningPage({
         }
 
         .planning-premium .plan-workbench {
-          max-width: 590px;
+          min-width: 0;
           width: 100%;
-          justify-self: end;
+          overflow: hidden;
+          justify-self: auto;
         }
 
         .planning-premium .plan-sidebar {
