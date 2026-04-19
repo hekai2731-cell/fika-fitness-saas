@@ -1382,6 +1382,15 @@ export function PlanningPage({
 
   useEffect(() => () => cancelLongPress(), []);
 
+  useEffect(() => {
+    const handleDocClick = () => {
+      setEditingDateDayId(null);
+      setDayPickerOpen(false);
+    };
+    document.addEventListener('mousedown', handleDocClick);
+    return () => document.removeEventListener('mousedown', handleDocClick);
+  }, []);
+
   // ── 新建 Block ────────────────────────────────────────────────
   const addBlock = () => {
     if (!client) return;
@@ -1753,10 +1762,6 @@ export function PlanningPage({
         backdropFilter: 'none',
         WebkitBackdropFilter: 'none',
         boxShadow: 'none',
-      }}
-      onClick={() => {
-        setEditingDateDayId(null);
-        setDayPickerOpen(false);
       }}
     >
       <div className="phase-strip" style={{ display: 'none' }}>
@@ -2497,22 +2502,25 @@ export function PlanningPage({
                   const isSelected = d.id === selectedDayId;
                   const hasPlan = Array.isArray((d as any).modules) && (d as any).modules.length > 0;
                   return (
-                    <div key={d.id} style={{ position: 'relative', flexShrink: 0 }}>
+                    <div
+                      key={d.id}
+                      id={`day-tab-${d.id}`}
+                      style={{ position: 'relative', flexShrink: 0 }}
+                    >
                       <button
-                        onClick={() => setSelectedDayId(d.id)}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setSelectedDayId(d.id);
+                          const timer = window.setTimeout(() => {
+                            setEditingDateDayId(d.id);
+                          }, 600);
+                          (e.currentTarget as any)._longPressTimer = timer;
+                        }}
                         onContextMenu={(e) => {
                           e.preventDefault();
+                          e.stopPropagation();
                           setEditingDateDayId(d.id);
                         }}
-                        onMouseDown={(() => {
-                          let timer: number;
-                          return (e: React.MouseEvent) => {
-                            timer = window.setTimeout(() => {
-                              setEditingDateDayId(d.id);
-                            }, 600);
-                            (e.currentTarget as any)._longPressTimer = timer;
-                          };
-                        })()}
                         onMouseUp={(e) => {
                           clearTimeout((e.currentTarget as any)._longPressTimer);
                         }}
@@ -2552,11 +2560,20 @@ export function PlanningPage({
                       {editingDateDayId === d.id && (
                         <div
                           style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: 0,
-                            marginTop: 4,
-                            zIndex: 100,
+                            position: 'fixed',
+                            top: (() => {
+                              const el = document.getElementById(`day-tab-${d.id}`);
+                              if (!el) return 60;
+                              const rect = el.getBoundingClientRect();
+                              return rect.bottom + 4;
+                            })(),
+                            left: (() => {
+                              const el = document.getElementById(`day-tab-${d.id}`);
+                              if (!el) return 0;
+                              const rect = el.getBoundingClientRect();
+                              return rect.left;
+                            })(),
+                            zIndex: 1000,
                             background: '#fff',
                             border: '1px solid var(--s200)',
                             borderRadius: 10,
@@ -2564,7 +2581,7 @@ export function PlanningPage({
                             boxShadow: '0 4px 16px rgba(0,0,0,.12)',
                             minWidth: 180,
                           }}
-                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
                         >
                           <div style={{
                             fontSize: 10, fontWeight: 700, color: 'var(--s500)',
@@ -2659,9 +2676,9 @@ export function PlanningPage({
                     </div>
                   );
                 })}
-                <div style={{ position: 'relative', flexShrink: 0 }}>
+                <div id="day-picker-anchor" style={{ position: 'relative', flexShrink: 0 }}>
                   <button
-                    onClick={(e) => { e.stopPropagation(); setDayPickerOpen(v => !v); }}
+                    onMouseDown={(e) => { e.stopPropagation(); setDayPickerOpen(v => !v); }}
                     style={{
                       padding: '5px 10px', borderRadius: 8, flexShrink: 0,
                       border: '1px dashed var(--s200)',
@@ -2674,11 +2691,19 @@ export function PlanningPage({
                   {dayPickerOpen && (
                     <div
                       style={{
-                        position: 'absolute',
-                        top: '100%',
-                        right: 0,
-                        marginTop: 4,
-                        zIndex: 50,
+                        position: 'fixed',
+                        top: (() => {
+                          const el = document.getElementById('day-picker-anchor');
+                          if (!el) return 60;
+                          return el.getBoundingClientRect().bottom + 4;
+                        })(),
+                        left: (() => {
+                          const el = document.getElementById('day-picker-anchor');
+                          if (!el) return 0;
+                          const rect = el.getBoundingClientRect();
+                          return Math.max(0, rect.right - 200);
+                        })(),
+                        zIndex: 1000,
                         background: '#fff',
                         border: '1px solid var(--s200)',
                         borderRadius: 10,
@@ -2689,7 +2714,7 @@ export function PlanningPage({
                         boxShadow: '0 4px 16px rgba(0,0,0,.1)',
                         minWidth: 200,
                       }}
-                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
                     >
                       {WEEKDAY_OPTIONS.map((dayLabel) => {
                         const occupied = (selectedWeek?.days || []).some(d => d.day === dayLabel);
