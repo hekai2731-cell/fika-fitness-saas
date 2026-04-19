@@ -669,6 +669,7 @@ export function PlanningPage({
     setStep(0);
   };
   const [loadingPublish, setLoadingPublish] = useState(false);
+  const [publishToast, setPublishToast] = useState(false);
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const autoSaveTimerRef = useRef<number | null>(null);
@@ -682,6 +683,7 @@ export function PlanningPage({
   const [aiConfirmMode, setAiConfirmMode] = useState<AiConfirmMode | null>(null);
   const [dayPlanStep, setDayPlanStep] = useState<'tier' | 'detail'>('tier');
   const [planConfirmForm, setPlanConfirmForm] = useState<PlanConfirmForm>(defaultPlanConfirmForm);
+  const [otherDiscomfortText, setOtherDiscomfortText] = useState('');
 
   // ── AI 生成预览状态 ──
   const [aiPreviewMode, setAiPreviewMode] = useState<'day' | 'week' | 'full' | null>(null);
@@ -689,6 +691,10 @@ export function PlanningPage({
 
   // ── 课前速览面板状态 ──
   const [preSessionPreviewOpen, setPreSessionPreviewOpen] = useState(false);
+
+  // ── 保存后偏好规则提示 ──
+  const [rulePrompt, setRulePrompt] = useState<{ open: boolean; text: string }>({ open: false, text: '' });
+  const [rulePromptSubmitting, setRulePromptSubmitting] = useState(false);
 
   useEffect(() => {
     if (!selectedClientId) { setClient(null); return; }
@@ -911,6 +917,8 @@ export function PlanningPage({
         persistClient(updated);
         syncClientMirrorToLocal(updated);
         setPublishConfirmOpen(false);
+        setPublishToast(true);
+        window.setTimeout(() => setPublishToast(false), 3000);
         // 双写到 /api/plans
         void planPublish((client as any).coachCode || '', (client as any).coachName || '').catch((e: unknown) => console.warn('[PlanningPage] plan publish dual-write failed:', e));
       }
@@ -1195,13 +1203,23 @@ export function PlanningPage({
     preSessionData: {
       recoveryStatus: planConfirmForm.recoveryStatus,
       todayStatus: planConfirmForm.todayStatus,
-      discomfortAreas: planConfirmForm.discomfortAreas,
+      discomfortAreas: planConfirmForm.discomfortAreas.map(a =>
+        a === '其他' ? (otherDiscomfortText.trim() || '其他') : a
+      ),
       sessionGoal: planConfirmForm.sessionGoal,
       coachNote: planConfirmForm.preSessionNote.trim(),
     },
   });
 
   const handleConfirmGenerate = () => {
+    if (
+      aiConfirmMode === 'day' &&
+      planConfirmForm.discomfortAreas.includes('其他') &&
+      !otherDiscomfortText.trim()
+    ) {
+      alert('请描述具体不适部位');
+      return;
+    }
     if (aiConfirmMode === 'full') {
       if (blockStep === 'form') {
         void generateBlockFramework();
@@ -1584,6 +1602,20 @@ export function PlanningPage({
     }
   };
 
+  // ── diff 动作名称，生成偏好规则文本 ──
+  const diffExercisesToRuleText = (origModules: any[], newModules: any[]): string => {
+    const origNames = (origModules || []).flatMap((m: any) => (m.exercises || []).map((e: any) => String(e.name || '')));
+    const newNames  = (newModules  || []).flatMap((m: any) => (m.exercises || []).map((e: any) => String(e.name || '')));
+    const removed = origNames.filter(n => n && !newNames.includes(n));
+    const added   = newNames .filter(n => n && !origNames.includes(n));
+    if (removed.length > 0 && added.length > 0) {
+      return `将${removed.join('、')}替换为${added.join('、')}`;
+    }
+    if (removed.length > 0) return `移除动作：${removed.join('、')}`;
+    if (added.length > 0)   return `新增动作：${added.join('、')}`;
+    return '';
+  };
+
   // 确认应用日计划预览数据
   const confirmSaveDayPlanFromPreview = () => {
     if (!aiPreviewData || !client || !selectedDay || !selectedWeek || !selectedBlock) return;
@@ -1622,8 +1654,17 @@ export function PlanningPage({
           }
         ),
       };
+      // diff 原始动作 vs 新动作，生成偏好规则文本
+      const origModules = Array.isArray((selectedDay as any).modules) ? (selectedDay as any).modules : [];
+      const ruleText = diffExercisesToRuleText(origModules, modules);
+
       persistClient(next);
       setGeneratedPreview({ type: null, data: null });
+
+      // 有差异时弹出规则提示
+      if (ruleText) {
+        setRulePrompt({ open: true, text: ruleText });
+      }
     } catch (e: any) {
       console.error('[PlanningPage] 保存日计划失败:', e);
       setError('保存失败：' + (e?.message || String(e)));
@@ -1752,6 +1793,7 @@ export function PlanningPage({
     <div
       className="planning-premium"
       style={{
+        position: 'relative',
         maxWidth: 1120,
         minHeight: 760,
         margin: '0 auto',
@@ -1764,6 +1806,104 @@ export function PlanningPage({
         boxShadow: 'none',
       }}
     >
+      {/* 发布成功 Toast */}
+      {/* 偏好规则确认弹窗 */}
+      {rulePrompt.open && (
+        <div
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(19,24,40,.28)',
+            backdropFilter: 'blur(3px)',
+            WebkitBackdropFilter: 'blur(3px)',
+            zIndex: 9998,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+          }}
+          onClick={() => setRulePrompt({ open: false, text: '' })}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: 'min(420px,100%)', borderRadius: 14,
+              border: '1px solid rgba(202,208,224,.9)',
+              background: '#fff',
+              boxShadow: '0 18px 38px rgba(31,41,74,.18)',
+              padding: 18,
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#202737', marginBottom: 4 }}>
+              记录为偏好规则？
+            </div>
+            <div style={{ fontSize: 12, color: '#7B8498', marginBottom: 12 }}>
+              检测到本次修改与草稿内容不同，是否将差异保存为教练偏好规则？
+            </div>
+            <textarea
+              value={rulePrompt.text}
+              onChange={e => setRulePrompt(p => ({ ...p, text: e.target.value }))}
+              style={{
+                width: '100%', minHeight: 64, borderRadius: 10,
+                border: '1px solid #D9DCE6', background: '#FAFBFF',
+                padding: '9px 10px', fontSize: 13, color: '#25304A',
+                outline: 'none', resize: 'vertical', marginBottom: 12,
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setRulePrompt({ open: false, text: '' })}
+                style={{
+                  height: 32, padding: '0 14px', borderRadius: 8,
+                  border: '1px solid rgba(167,178,211,.58)',
+                  background: 'rgba(242,246,255,.86)',
+                  color: 'rgba(56,66,96,.88)', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                }}
+              >不保存</button>
+              <button
+                type="button"
+                disabled={rulePromptSubmitting || !rulePrompt.text.trim()}
+                onClick={async () => {
+                  if (!client || !rulePrompt.text.trim()) return;
+                  const coachCode = String((client as any).coachCode || '');
+                  if (!coachCode) { setRulePrompt({ open: false, text: '' }); return; }
+                  setRulePromptSubmitting(true);
+                  try {
+                    await fetch('/api/coach-rules', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ coachCode, clientId: client.id, rule: rulePrompt.text.trim(), source: 'auto_diff' }),
+                    });
+                  } catch (e) { console.error('[rules] save from diff failed', e); }
+                  finally {
+                    setRulePromptSubmitting(false);
+                    setRulePrompt({ open: false, text: '' });
+                  }
+                }}
+                style={{
+                  height: 32, padding: '0 14px', borderRadius: 8, border: 'none',
+                  background: 'linear-gradient(120deg,rgba(124,132,244,.92),rgba(112,121,236,.88))',
+                  color: '#fff', fontSize: 12, fontWeight: 700,
+                  cursor: rulePromptSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: rulePromptSubmitting ? 0.7 : 1,
+                }}
+              >{rulePromptSubmitting ? '保存中...' : '保存规则'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {publishToast && (
+        <div style={{
+          position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999, background: '#16a34a', color: '#fff',
+          padding: '8px 20px', borderRadius: 20,
+          fontSize: 13, fontWeight: 700,
+          boxShadow: '0 4px 16px rgba(22,163,74,.35)',
+          pointerEvents: 'none',
+          animation: 'fadeInDown .2s ease',
+        }}>
+          已发布 ✓
+        </div>
+      )}
+
       <div className="phase-strip" style={{ display: 'none' }}>
         <div className="phase-top-row">
           <div>
@@ -1994,6 +2134,14 @@ export function PlanningPage({
                           Week {w.week_num}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {String(w.week_num) === String(client?.current_week) && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, padding: '1px 6px',
+                              borderRadius: 4,
+                              background: 'rgba(22,163,74,.12)',
+                              color: '#16a34a',
+                            }}>当前</span>
+                          )}
                           <span style={{
                             fontSize: 9, fontWeight: 700, padding: '1px 6px',
                             borderRadius: 4,
@@ -2445,6 +2593,19 @@ export function PlanningPage({
                           </button>
                         ))}
                       </div>
+                      {(planConfirmForm.discomfortAreas || []).includes('其他') && (
+                        <input
+                          type="text"
+                          value={otherDiscomfortText}
+                          onChange={(e) => setOtherDiscomfortText(e.target.value)}
+                          placeholder="请描述不适部位（如右肩旋转肌群）"
+                          style={{
+                            marginTop: 6, width: '100%', height: 28, borderRadius: 6,
+                            border: '1px solid #fca5a5', background: '#fff7f7',
+                            padding: '0 8px', fontSize: 11, color: '#1f2435', outline: 'none',
+                          }}
+                        />
+                      )}
                     </div>
 
                     {/* Pro/Elite 动力链提醒 */}
@@ -2542,6 +2703,15 @@ export function PlanningPage({
                         }}
                       >
                         <span>{d.day}</span>
+                        {d.id === (client as any)?.current_day_id && (
+                          <span style={{
+                            fontSize: 8, fontWeight: 700, padding: '1px 5px',
+                            borderRadius: 3,
+                            background: 'rgba(22,163,74,.12)',
+                            color: '#16a34a',
+                            marginTop: 1,
+                          }}>今日</span>
+                        )}
                         {(d as any).date && (
                           <span style={{ fontSize: 9, opacity: 0.6, fontWeight: 400 }}>
                             {(d as any).date}
@@ -3238,6 +3408,19 @@ export function PlanningPage({
                       );
                     })}
                   </div>
+                  {planConfirmForm.discomfortAreas.includes('其他') && (
+                    <input
+                      type="text"
+                      value={otherDiscomfortText}
+                      onChange={(e) => setOtherDiscomfortText(e.target.value)}
+                      placeholder="请描述不适部位（如右肩旋转肌群）"
+                      style={{
+                        marginTop: 8, width: '100%', height: 34, borderRadius: 10,
+                        border: '1px solid #D9DCE6', background: '#FFFFFF',
+                        padding: '0 10px', fontSize: 13, color: '#25304A', outline: 'none',
+                      }}
+                    />
+                  )}
                 </div>
 
                 <div>

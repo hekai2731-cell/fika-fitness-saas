@@ -3,9 +3,93 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useHeartRate } from '@/hooks/useHeartRate';
-import { buildHRProfile, ZONE_COLORS, type HRProfile } from '@/lib/heartRateUtils';
+import { buildHRProfile, type HRProfile } from '@/lib/heartRateUtils';
 import type { Client } from '@/lib/db';
 import { getClientsFromCache } from '@/lib/store';
+
+// ─── API ──────────────────────────────────────────────────────
+const _isProduction = import.meta.env.PROD;
+const _apiBase = _isProduction ? '' : (((import.meta as any).env?.VITE_API_BASE_URL as string) || '');
+function hrApiUrl(path: string) {
+  return _apiBase ? _apiBase.replace(/\/$/, '') + path : path;
+}
+
+function fmtSecs(s: number): string {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m > 0 ? `${m}分${sec > 0 ? sec + '秒' : ''}` : `${sec}秒`;
+}
+
+interface HrSession {
+  id: string;
+  date: string;
+  hrAvg?: number;
+  hrMax?: number;
+  hrMin?: number;
+  hrZoneDurations?: { z1?: number; z2?: number; z3?: number; z4?: number; z5?: number };
+  kcal?: number;
+}
+
+const ZONE_DEF = [
+  { key: 'z1', label: 'Z1 热身', color: '#94a3b8' },
+  { key: 'z2', label: 'Z2 脂肪燃烧', color: '#3b82f6' },
+  { key: 'z3', label: 'Z3 有氧', color: '#22c55e' },
+  { key: 'z4', label: 'Z4 无氧阈', color: '#f97316' },
+  { key: 'z5', label: 'Z5 极限', color: '#ef4444' },
+] as const;
+
+function ZoneBar({ zones }: { zones: HrSession['hrZoneDurations'] }) {
+  if (!zones) return null;
+  const vals = ZONE_DEF.map(z => ({ ...z, secs: (zones as any)[z.key] || 0 }));
+  const total = vals.reduce((s, v) => s + v.secs, 0);
+  if (total === 0) return <div style={{ fontSize: 11, color: '#94a3b8' }}>无区间数据</div>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      {vals.map(z => {
+        const pct = Math.round((z.secs / total) * 100);
+        return (
+          <div key={z.key}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+              <span style={{ color: z.color, fontWeight: 700 }}>{z.label}</span>
+              <span style={{ color: '#64748b' }}>{fmtSecs(z.secs)} ({pct}%)</span>
+            </div>
+            <div style={{ height: 6, borderRadius: 99, background: 'rgba(148,163,184,.2)', overflow: 'hidden' }}>
+              <div style={{ width: `${pct}%`, height: '100%', background: z.color, borderRadius: 99, transition: 'width .4s' }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HrTrendChart({ sessions }: { sessions: HrSession[] }) {
+  const pts = sessions.slice(-10);
+  if (pts.length < 2) return null;
+  const W = 400; const H = 120;
+  const pad = { l: 8, r: 8, t: 12, b: 8 };
+  const allVals = pts.flatMap(s => [s.hrMax ?? 0, s.hrAvg ?? 0, s.hrMin ?? 0]).filter(v => v > 0);
+  const yMin = Math.max(40, Math.min(...allVals) - 10);
+  const yMax = Math.min(200, Math.max(...allVals) + 10);
+  const x = (i: number) => pad.l + (i / (pts.length - 1)) * (W - pad.l - pad.r);
+  const y = (v: number) => pad.t + (1 - (v - yMin) / Math.max(yMax - yMin, 1)) * (H - pad.t - pad.b);
+  const line = (getter: (s: HrSession) => number | undefined) =>
+    pts.map((s, i) => { const v = getter(s); if (!v) return ''; return `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`; }).join(' ');
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, overflow: 'visible' }}>
+      <path d={line(s => s.hrMax)} fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={line(s => s.hrAvg)} fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={line(s => s.hrMin)} fill="none" stroke="#3b82f6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      {pts.map((s, i) => (
+        <g key={i}>
+          {s.hrMax && <circle cx={x(i)} cy={y(s.hrMax)} r="3" fill="#fff" stroke="#ef4444" strokeWidth="1.5" />}
+          {s.hrAvg && <circle cx={x(i)} cy={y(s.hrAvg)} r="3" fill="#fff" stroke="#f97316" strokeWidth="1.5" />}
+          {s.hrMin && <circle cx={x(i)} cy={y(s.hrMin)} r="3" fill="#fff" stroke="#3b82f6" strokeWidth="1.5" />}
+        </g>
+      ))}
+    </svg>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; color: string; bg: string }> = {
@@ -40,14 +124,11 @@ export function HeartRatePage({ selectedClientId }: { selectedClientId: string |
   const [manualAge, setManualAge] = useState(28);
   const [manualRhr, setManualRhr] = useState(65);
   const [previewProfile, setPreviewProfile] = useState<HRProfile>(() => buildHRProfile(28, 65));
-  // 模拟历史课程心率数据（后续可接真实数据）
-  const [sessionHistory] = useState([
-    { date: '04/14', avgBpm: 142, maxBpm: 168, dominantZone: 3, duration: '52分钟' },
-    { date: '04/11', avgBpm: 138, maxBpm: 162, dominantZone: 3, duration: '58分钟' },
-    { date: '04/08', avgBpm: 151, maxBpm: 175, dominantZone: 4, duration: '45分钟' },
-    { date: '04/05', avgBpm: 133, maxBpm: 158, dominantZone: 2, duration: '60分钟' },
-    { date: '04/02', avgBpm: 145, maxBpm: 171, dominantZone: 3, duration: '55分钟' },
-  ]);
+
+  // 真实心率 session 数据
+  const [hrSessions, setHrSessions] = useState<HrSession[]>([]);
+  const [hrLoading, setHrLoading] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const hr = useHeartRate();
 
@@ -59,6 +140,22 @@ export function HeartRatePage({ selectedClientId }: { selectedClientId: string |
     }
     setSelectedClient(list.find((c) => c.id === selectedClientId) || null);
   }, [selectedClientId]);
+
+  useEffect(() => {
+    if (!selectedClient?.id) { setHrSessions([]); return; }
+    setHrLoading(true);
+    fetch(hrApiUrl(`/api/sessions?clientId=${encodeURIComponent(selectedClient.id)}&limit=20`))
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((json: any) => {
+        const list: HrSession[] = Array.isArray(json) ? json : (json.sessions || []);
+        const filtered = list
+          .filter(s => typeof s.hrAvg === 'number' && s.hrAvg > 0)
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        setHrSessions(filtered);
+      })
+      .catch(() => setHrSessions([]))
+      .finally(() => setHrLoading(false));
+  }, [selectedClient?.id]);
 
   useEffect(() => {
     if (!selectedClient) return;
@@ -352,100 +449,102 @@ export function HeartRatePage({ selectedClientId }: { selectedClientId: string |
             </div>
           </div>
 
-          {/* 右：历史课程心率分析 */}
+          {/* 右：历史课程心率分析（真实API数据） */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-            {/* 历史心率走势 */}
-            <Card style={{ borderRadius: 20, border: '1px solid rgba(216,221,236,0.72)', background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(10px)' }}>
-              <CardContent style={{ padding: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>近期课程心率记录</div>
-                  <span style={{ fontSize: 10, color: '#94a3b8' }}>最近 {sessionHistory.length} 节课</span>
-                </div>
+            {hrLoading && (
+              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>加载心率数据...</div>
+            )}
 
-                {/* 柱状图 */}
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 80, marginBottom: 8 }}>
-                  {sessionHistory.map((s, i) => {
-                    const maxH = Math.max(...sessionHistory.map(x => x.maxBpm));
-                    const minVal = 100;
-                    const avgH = Math.round(((s.avgBpm - minVal) / (maxH - minVal)) * 64) + 8;
-                    const maxBarH = Math.round(((s.maxBpm - minVal) / (maxH - minVal)) * 64) + 8;
-                    const zColor = ZONE_COLORS[s.dominantZone] || '#6b7280';
-                    return (
-                      <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                        <div style={{ width: '100%', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                          <div style={{ width: '60%', height: maxBarH, background: `${zColor}30`, borderRadius: '3px 3px 0 0', border: `1px solid ${zColor}40` }} />
-                          <div style={{ position: 'absolute', bottom: 0, width: '60%', height: avgH, background: zColor, borderRadius: '3px 3px 0 0', opacity: 0.8 }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+            {!hrLoading && hrSessions.length === 0 && (
+              <Card style={{ borderRadius: 20, border: '1px dashed rgba(148,163,184,.4)', background: 'rgba(255,255,255,0.5)' }}>
+                <CardContent style={{ padding: 40, textAlign: 'center' }}>
+                  <div style={{ fontSize: 32, marginBottom: 10 }}>💓</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#64748b' }}>暂无心率数据</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6, lineHeight: 1.6 }}>上课时连接心率设备即可自动同步</div>
+                </CardContent>
+              </Card>
+            )}
 
-                {/* 日期标签 */}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {sessionHistory.map((s, i) => (
-                    <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 9, color: '#94a3b8' }}>{s.date}</div>
-                  ))}
-                </div>
-
-                {/* 图例 */}
-                <div style={{ display: 'flex', gap: 14, marginTop: 10 }}>
-                  {[['深色', '平均心率'], ['浅色', '峰值心率']].map(([t, l]) => (
-                    <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: 2, background: t === '深色' ? '#7c3aed' : 'rgba(124,58,237,0.25)' }} />
-                      <span style={{ fontSize: 10, color: '#94a3b8' }}>{l}</span>
+            {!hrLoading && hrSessions.length > 0 && (
+              <>
+                {/* 心率趋势折线图 */}
+                <Card style={{ borderRadius: 20, border: '1px solid rgba(216,221,236,0.72)', background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(10px)' }}>
+                  <CardContent style={{ padding: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>心率趋势</div>
+                      <span style={{ fontSize: 10, color: '#94a3b8' }}>最近 {Math.min(hrSessions.length, 10)} 节课</span>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                    <HrTrendChart sessions={hrSessions} />
+                    <div style={{ display: 'flex', gap: 14, marginTop: 8 }}>
+                      {[['#ef4444','最高心率'],['#f97316','平均心率'],['#3b82f6','最低心率']].map(([c,l]) => (
+                        <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <div style={{ width: 18, height: 2, background: c, borderRadius: 1 }} />
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{l}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
 
-            {/* 历史课程明细 */}
-            <Card style={{ borderRadius: 20, border: '1px solid rgba(216,221,236,0.72)', background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(10px)' }}>
-              <CardContent style={{ padding: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', letterSpacing: '.08em', marginBottom: 12 }}>课程心率明细</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {/* 表头 */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '60px 60px 60px 60px 1fr', gap: 8, padding: '0 10px', fontSize: 9, color: '#94a3b8', fontWeight: 700, letterSpacing: '.08em' }}>
-                    <span>日期</span><span>平均</span><span>峰值</span><span>时长</span><span>主要区间</span>
-                  </div>
-                  {sessionHistory.map((s, i) => {
-                    const zColor = ZONE_COLORS[s.dominantZone] || '#6b7280';
-                    const zName = profile.zones.find(z => z.zone === s.dominantZone)?.labelEn || '--';
-                    return (
-                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '60px 60px 60px 60px 1fr', gap: 8, alignItems: 'center', padding: '8px 10px', borderRadius: 10, background: 'rgba(248,249,252,0.6)', border: '1px solid rgba(216,221,236,0.5)', fontSize: 12 }}>
-                        <span style={{ color: '#475569', fontWeight: 600 }}>{s.date}</span>
-                        <span style={{ fontWeight: 700, color: '#334155', fontVariantNumeric: 'tabular-nums' }}>{s.avgBpm}</span>
-                        <span style={{ fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{s.maxBpm}</span>
-                        <span style={{ color: '#64748b' }}>{s.duration}</span>
-                        <span style={{ padding: '2px 8px', borderRadius: 20, background: `${zColor}15`, color: zColor, fontSize: 10, fontWeight: 700, width: 'fit-content' }}>
-                          Z{s.dominantZone} {zName}
+                {/* 最新一次课区间分布 */}
+                {hrSessions[hrSessions.length - 1]?.hrZoneDurations && (
+                  <Card style={{ borderRadius: 20, border: '1px solid rgba(216,221,236,0.72)', background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(10px)' }}>
+                    <CardContent style={{ padding: 20 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 14 }}>
+                        最近一课 · 区间分布
+                        <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 8 }}>
+                          {hrSessions[hrSessions.length - 1].date?.slice(0, 10)}
                         </span>
                       </div>
-                    );
-                  })}
-                </div>
+                      <ZoneBar zones={hrSessions[hrSessions.length - 1].hrZoneDurations} />
+                    </CardContent>
+                  </Card>
+                )}
 
-                {/* 趋势分析 */}
-                <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 12, background: 'rgba(92,98,213,0.06)', border: '1px solid rgba(92,98,213,0.15)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#4f56c8', marginBottom: 4 }}>强度趋势分析</div>
-                  <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.6 }}>
-                    {(() => {
-                      const recent = sessionHistory.slice(0, 3);
-                      const avgRecent = Math.round(recent.reduce((a, b) => a + b.avgBpm, 0) / recent.length);
-                      const older = sessionHistory.slice(3);
-                      if (!older.length) return '数据积累中，继续训练后可查看趋势';
-                      const avgOlder = Math.round(older.reduce((a, b) => a + b.avgBpm, 0) / older.length);
-                      const diff = avgRecent - avgOlder;
-                      if (diff > 5) return `近3节课平均心率比之前高 ${diff} bpm，训练强度有所提升，注意恢复质量。`;
-                      if (diff < -5) return `近3节课平均心率比之前低 ${Math.abs(diff)} bpm，整体强度趋于稳定，可适当提升负荷。`;
-                      return `近期训练强度稳定，平均心率保持在 ${avgRecent} bpm，继续当前节奏。`;
-                    })()}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                {/* 课程明细列表 */}
+                <Card style={{ borderRadius: 20, border: '1px solid rgba(216,221,236,0.72)', background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(10px)' }}>
+                  <CardContent style={{ padding: 20 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', letterSpacing: '.08em', marginBottom: 12 }}>课程心率明细</div>
+                    {/* 表头 */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '90px 60px 1fr 60px 60px', gap: 8, padding: '0 10px', fontSize: 9, color: '#94a3b8', fontWeight: 700, letterSpacing: '.08em', marginBottom: 6 }}>
+                      <span>日期</span><span>平均</span><span>范围</span><span>峰值</span><span>消耗</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {[...hrSessions].reverse().map((s) => {
+                        const isOpen = expandedId === s.id;
+                        return (
+                          <div key={s.id}>
+                            <div
+                              onClick={() => setExpandedId(isOpen ? null : s.id)}
+                              style={{
+                                display: 'grid', gridTemplateColumns: '90px 60px 1fr 60px 60px',
+                                gap: 8, alignItems: 'center', padding: '8px 10px',
+                                borderRadius: 10, cursor: 'pointer',
+                                background: isOpen ? 'rgba(249,115,22,.06)' : 'rgba(248,249,252,0.6)',
+                                border: `1px solid ${isOpen ? 'rgba(249,115,22,.25)' : 'rgba(216,221,236,.5)'}`,
+                                fontSize: 12,
+                              }}
+                            >
+                              <span style={{ color: '#475569', fontWeight: 600 }}>{s.date?.slice(0, 10)}</span>
+                              <span style={{ fontWeight: 700, color: '#f97316', fontVariantNumeric: 'tabular-nums' }}>{s.hrAvg ?? '--'}</span>
+                              <span style={{ color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{s.hrMin ?? '--'}–{s.hrMax ?? '--'} bpm</span>
+                              <span style={{ fontWeight: 700, color: '#ef4444', fontVariantNumeric: 'tabular-nums' }}>{s.hrMax ?? '--'}</span>
+                              <span style={{ color: '#64748b' }}>{s.kcal != null ? `${s.kcal.toFixed(0)}` : '--'}</span>
+                            </div>
+                            {isOpen && s.hrZoneDurations && (
+                              <div style={{ margin: '2px 0 4px', padding: '10px 12px', background: 'rgba(249,115,22,.04)', borderRadius: 8, border: '1px solid rgba(249,115,22,.12)' }}>
+                                <ZoneBar zones={s.hrZoneDurations} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </div>
         </div>
       )}

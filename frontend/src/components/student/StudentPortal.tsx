@@ -270,90 +270,30 @@ function TodayTab({
   const [feedbackNote, setFeedbackNote] = useState('');
   const [showFeedback, setShowFeedback] = useState(false);
 
+  // 打卡 state: key = `${exName}_set${setIdx}`
+  const [setLogs, setSetLogs] = useState<Record<string, { done: boolean; actualReps: string; actualWeight: string }>>({});
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+
+  const API_BASE = import.meta.env.PROD ? '' : (((import.meta as any).env?.VITE_API_BASE_URL as string) || '');
+  const checkinApiUrl = (path: string) => API_BASE ? API_BASE.replace(/\/$/, '') + path : path;
+
+  const toggleSet = (key: string, defaultReps: string, defaultWeight: string) => {
+    setSetLogs(prev => {
+      const cur = prev[key];
+      if (!cur) return { ...prev, [key]: { done: true, actualReps: defaultReps, actualWeight: defaultWeight } };
+      return { ...prev, [key]: { ...cur, done: !cur.done } };
+    });
+  };
+  const updateLog = (key: string, field: 'actualReps' | 'actualWeight', val: string) => {
+    setSetLogs(prev => {
+      const existing = prev[key] ?? { done: false, actualReps: '', actualWeight: '' };
+      return { ...prev, [key]: { ...existing, [field]: val } };
+    });
+  };
+
   const todayEntry = resolveTodayEntry(client);
   const todayPlan = todayEntry.plan;
   const planVersionLabel = getPlanVersionLabel(client);
-
-  // 定期同步教练端发布的训练内容
-  useEffect(() => {
-    if (!client?.id) return;
-
-    const syncCoachData = () => {
-      try {
-        console.log('Syncing coach data for client:', client.id, client.roadCode);
-        
-        // 从教练端数据中获取最新的发布内容
-        const coachClients = JSON.parse(localStorage.getItem('fika_coach_clients_v1') || '[]');
-        const coachClient = coachClients.find((c: any) => c.id === client.id || c.roadCode === client.roadCode);
-        
-        console.log('Found coach client:', !!coachClient, coachClient?.name);
-        
-        if (coachClient) {
-          console.log('Coach client has published_blocks:', !!coachClient.published_blocks, coachClient.published_blocks?.length);
-          console.log('Current client has published_blocks:', !!client.published_blocks, client.published_blocks?.length);
-          
-          const currentClient = findClientById(client.id);
-          if (currentClient) {
-            const hasNewData =
-              JSON.stringify(currentClient.published_blocks || []) !== JSON.stringify(coachClient.published_blocks || []) ||
-              Number(currentClient.plan_published_version || 0) !== Number(coachClient.plan_published_version || 0) ||
-              Number(currentClient.current_week || 1) !== Number(coachClient.current_week || 1) ||
-              String(currentClient.current_day_id || '') !== String(coachClient.current_day_id || '') ||
-              String(currentClient.current_block_id || '') !== String(coachClient.current_block_id || '');
-            
-            if (hasNewData) {
-              console.log('Found new coach data, updating...');
-              
-              // 更新本地客户端数据
-              const updatedClient = {
-                ...currentClient,
-                published_blocks: coachClient.published_blocks,
-                plan_published_version: coachClient.plan_published_version,
-                plan_published_at: coachClient.plan_published_at,
-                current_week: coachClient.current_week,
-                current_day: coachClient.current_day,
-                current_day_id: coachClient.current_day_id,
-                current_block_id: coachClient.current_block_id,
-              };
-              
-              console.log('Updated client data:', {
-                hasPublishedBlocks: !!updatedClient.published_blocks,
-                blocksCount: updatedClient.published_blocks?.length,
-                version: updatedClient.plan_published_version
-              });
-              
-              // 更新 localStorage
-              const all: Client[] = JSON.parse(localStorage.getItem('fika_clients') || '[]');
-              const idx = all.findIndex((c) => c.id === updatedClient.id);
-              if (idx >= 0) all[idx] = updatedClient;
-              else all.push(updatedClient);
-              localStorage.setItem('fika_clients', JSON.stringify(all));
-              localStorage.setItem('fika_current_client', JSON.stringify(updatedClient));
-              
-              console.log('Synced coach data to student portal');
-              
-              // 触发重新渲染
-              window.dispatchEvent(new Event('storage'));
-            } else {
-              console.log('No new data found');
-            }
-          }
-        } else {
-          console.log('No coach client found for:', client.id, client.roadCode);
-        }
-      } catch (error) {
-        console.error('Error syncing coach data:', error);
-      }
-    };
-
-    // 立即同步一次
-    syncCoachData();
-    
-    // 每10秒同步一次
-    const timer = setInterval(syncCoachData, 10000);
-    
-    return () => clearInterval(timer);
-  }, [client?.id, client?.roadCode]);
 
   const timelineDays = todayEntry.timelineDays;
   const todayIndex = todayEntry.dayRef?.dayIndex ?? -1;
@@ -500,39 +440,239 @@ function TodayTab({
         {planVersionLabel}
       </div>
 
-      {todayPlan ? (
-        todayPlan.modules.map((mod, mi) => (
-          <div key={mi} className="stu-module-card">
-            <div className="stu-module-hdr">
-              <span className="stu-module-name">{mod.module_name}</span>
-              {mod.format && <span className="stu-module-fmt">{mod.format}</span>}
+      {todayPlan ? (() => {
+        // 计算总组数和已完成组数
+        const allExercises = todayPlan.modules.flatMap(m => m.exercises);
+        const totalSets = allExercises.reduce((s, ex) => s + (Number(ex.sets) || 1), 0);
+        const doneSets = Object.values(setLogs).filter(v => v.done).length;
+        const anyDone = doneSets > 0;
+        const pct = totalSets > 0 ? Math.round((doneSets / totalSets) * 100) : 0;
+
+        return (
+          <>
+            {/* 进度条 */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--s500)', marginBottom: 4 }}>
+                <span>已完成 {doneSets} / {totalSets} 组</span>
+                <span style={{ fontWeight: 700, color: doneSets === totalSets && totalSets > 0 ? 'var(--g)' : 'var(--p)' }}>{pct}%</span>
+              </div>
+              <div style={{ height: 6, borderRadius: 99, background: 'var(--s100)', overflow: 'hidden' }}>
+                <div style={{ width: `${pct}%`, height: '100%', background: doneSets === totalSets && totalSets > 0 ? 'var(--g)' : 'var(--p)', borderRadius: 99, transition: 'width .3s' }} />
+              </div>
             </div>
-            {mod.exercises.map((ex, ei) => {
-              const tc = getTagColor(ex.group_tag);
+
+            {todayPlan.modules.map((mod, mi) => {
               return (
-                <div key={ei} className="stu-ex-row">
-                  {ex.group_tag ? (
-                    <span className="stu-ex-tag" style={{ background: `${tc}20`, color: tc }}>
-                      {ex.group_tag}
-                    </span>
-                  ) : (
-                    <div style={{ width: 4 }} />
-                  )}
-                  <div className="stu-ex-info">
-                    <div className="stu-ex-name">{ex.name}</div>
-                    <div className="stu-ex-sets">
-                      {ex.sets}组 × {ex.reps}
-                      {ex.rhythm && ` · ${ex.rhythm}`}
-                      {ex.rest_seconds && ex.rest_seconds > 0 ? ` · 休息${ex.rest_seconds}s` : ''}
-                    </div>
-                    {ex.cue && <div className="stu-cue">{ex.cue}</div>}
+                <div key={mi} className="stu-module-card">
+                  <div className="stu-module-hdr">
+                    <span className="stu-module-name">{mod.module_name}</span>
+                    {mod.format && <span className="stu-module-fmt">{mod.format}</span>}
                   </div>
+                  {mod.exercises.map((ex, ei) => {
+                    const tc = getTagColor(ex.group_tag);
+                    const numSets = Number(ex.sets) || 1;
+                    const allSetsDone = Array.from({ length: numSets }, (_, si) => `${ex.name}_set${si}`).every(k => setLogs[k]?.done);
+                    return (
+                      <div key={ei} style={{ marginBottom: 10 }}>
+                        {/* 动作标题行 */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, paddingLeft: 2 }}>
+                          {ex.group_tag && (
+                            <span className="stu-ex-tag" style={{ background: `${tc}20`, color: tc }}>{ex.group_tag}</span>
+                          )}
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--s800)' }}>{ex.name}</span>
+                          {allSetsDone && <span style={{ fontSize: 12, color: 'var(--g)', fontWeight: 700 }}>✓</span>}
+                          {ex.cue && <span style={{ fontSize: 10, color: 'var(--s400)', marginLeft: 4 }}>{ex.cue}</span>}
+                        </div>
+                        {/* 每组一行 */}
+                        {Array.from({ length: numSets }, (_, si) => {
+                          const key = `${ex.name}_set${si}`;
+                          const log = setLogs[key];
+                          const isDone = log?.done ?? false;
+                          const defaultReps = String(ex.reps || '');
+                          const defaultWeight = String((ex as any).weight || '');
+                          return (
+                            <div key={si} style={{
+                              display: 'flex', alignItems: 'center', gap: 6,
+                              padding: '6px 8px', marginBottom: 4, borderRadius: 8,
+                              background: isDone ? 'rgba(34,197,94,.07)' : 'var(--s50)',
+                              border: `1px solid ${isDone ? 'rgba(34,197,94,.25)' : 'var(--s100)'}`,
+                              opacity: isDone ? 0.75 : 1,
+                              transition: 'all .15s',
+                            }}>
+                              <span style={{ fontSize: 10, color: 'var(--s400)', width: 28, flexShrink: 0 }}>第{si + 1}组</span>
+                              <span style={{ fontSize: 10, color: 'var(--s500)', flexShrink: 0 }}>{defaultReps || '--'} 次</span>
+                              {defaultWeight && <span style={{ fontSize: 10, color: 'var(--s400)', flexShrink: 0 }}>× {defaultWeight}kg</span>}
+                              <input
+                                type="number"
+                                placeholder={defaultReps || '次数'}
+                                value={log?.actualReps ?? ''}
+                                onChange={e => updateLog(key, 'actualReps', e.target.value)}
+                                style={{
+                                  width: 44, height: 26, borderRadius: 6, border: '1px solid var(--s200)',
+                                  background: '#fff', textAlign: 'center', fontSize: 11, outline: 'none',
+                                  color: 'var(--s800)',
+                                }}
+                              />
+                              <input
+                                type="number"
+                                placeholder={defaultWeight || 'kg'}
+                                value={log?.actualWeight ?? ''}
+                                onChange={e => updateLog(key, 'actualWeight', e.target.value)}
+                                style={{
+                                  width: 44, height: 26, borderRadius: 6, border: '1px solid var(--s200)',
+                                  background: '#fff', textAlign: 'center', fontSize: 11, outline: 'none',
+                                  color: 'var(--s800)',
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => toggleSet(key, log?.actualReps || defaultReps, log?.actualWeight || defaultWeight)}
+                                style={{
+                                  marginLeft: 'auto', width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                                  border: isDone ? 'none' : '2px solid var(--s300)',
+                                  background: isDone ? 'var(--g)' : 'transparent',
+                                  color: isDone ? '#fff' : 'var(--s300)',
+                                  fontSize: 13, fontWeight: 900, cursor: 'pointer',
+                                  display: 'grid', placeItems: 'center', transition: 'all .15s',
+                                }}
+                              >{isDone ? '✓' : ''}</button>
+                            </div>
+                          );
+                        })}
+                        {ex.rest_seconds && ex.rest_seconds > 0 && (
+                          <div style={{ fontSize: 10, color: 'var(--s400)', paddingLeft: 4 }}>休息 {ex.rest_seconds}s</div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
-          </div>
-        ))
-      ) : (
+
+            {/* 完成训练按钮 */}
+            {anyDone && !showFeedback && submitStatus !== 'success' && (
+              <button
+                type="button"
+                onClick={() => setShowFeedback(true)}
+                style={{
+                  width: '100%', height: 48, borderRadius: 14,
+                  background: 'linear-gradient(135deg, var(--p), var(--p4))',
+                  border: 'none', color: '#fff',
+                  fontSize: 14, fontWeight: 700,
+                  marginTop: 12, cursor: 'pointer',
+                  boxShadow: '0 4px 16px rgba(108,99,255,.3)',
+                }}
+              >
+                完成训练 · 提交反馈
+              </button>
+            )}
+
+            {/* 成功提示 */}
+            {submitStatus === 'success' && (
+              <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 12, background: 'rgba(34,197,94,.1)', border: '1px solid rgba(34,197,94,.3)', color: '#166534', fontSize: 13, fontWeight: 700, textAlign: 'center' }}>
+                🎉 训练已记录！
+              </div>
+            )}
+            {submitStatus === 'error' && (
+              <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', color: '#991b1b', fontSize: 12, textAlign: 'center' }}>
+                记录失败，请重试
+              </div>
+            )}
+
+            {/* 内联反馈面板 */}
+            {showFeedback && (
+              <div style={{ marginTop: 14, padding: 16, borderRadius: 16, background: '#fff', border: '1px solid var(--s200)', boxShadow: '0 4px 20px rgba(0,0,0,.08)' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--s800)', marginBottom: 14 }}>今天练得怎么样？</div>
+
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--s500)', letterSpacing: '.1em', marginBottom: 8 }}>RPE（疲劳程度）</div>
+                <div style={{ display: 'flex', gap: 5, marginBottom: 16, flexWrap: 'wrap' }}>
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map(v => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setFeedbackRpe(v)}
+                      style={{
+                        width: 36, height: 36, borderRadius: 8,
+                        border: '1.5px solid',
+                        borderColor: feedbackRpe === v ? 'var(--p)' : 'var(--s200)',
+                        background: feedbackRpe === v ? 'var(--p)' : 'transparent',
+                        color: feedbackRpe === v ? '#fff' : 'var(--s600)',
+                        fontSize: 13, fontWeight: 800, cursor: 'pointer',
+                        transition: 'all .12s',
+                      }}
+                    >{v}</button>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--s500)', letterSpacing: '.1em', marginBottom: 6 }}>感受（选填）</div>
+                <textarea
+                  className="textarea"
+                  rows={3}
+                  placeholder="今天感受、最喜欢的动作、下次想挑战的..."
+                  value={feedbackNote}
+                  onChange={e => setFeedbackNote(e.target.value)}
+                  style={{ marginBottom: 12 }}
+                />
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-o" style={{ flex: 1 }} onClick={() => setShowFeedback(false)}>取消</button>
+                  <button
+                    className="btn btn-p"
+                    style={{ flex: 2, opacity: submitStatus === 'submitting' ? 0.7 : 1, cursor: submitStatus === 'submitting' ? 'not-allowed' : 'pointer' }}
+                    disabled={submitStatus === 'submitting'}
+                    onClick={async () => {
+                      setSubmitStatus('submitting');
+                      const todayEntry2 = resolveTodayEntry(client);
+                      const actualExercises = (todayPlan?.modules ?? []).flatMap(m =>
+                        m.exercises.map(ex => {
+                          const numSets2 = Number(ex.sets) || 1;
+                          const setDetails = Array.from({ length: numSets2 }, (_, si) => {
+                            const k = `${ex.name}_set${si}`;
+                            const lg = setLogs[k];
+                            return { set: si + 1, actualReps: lg?.actualReps || String(ex.reps || ''), actualWeight: lg?.actualWeight || String((ex as any).weight || ''), done: lg?.done ?? false };
+                          });
+                          return {
+                            name: ex.name,
+                            sets_completed: setDetails.filter(s => s.done).length,
+                            set_details: setDetails,
+                          };
+                        })
+                      );
+                      try {
+                        const res = await fetch(checkinApiUrl('/api/sessions'), {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            clientId: client.id,
+                            date: new Date().toISOString(),
+                            week: todayEntry2.dayRef?.weekNum || Number(client.current_week || 1),
+                            day: todayEntry2.dayRef?.dayLabel || client.current_day,
+                            rpe: feedbackRpe,
+                            note: feedbackNote,
+                            performance: feedbackRpe >= 8 ? 'hard' : feedbackRpe >= 5 ? 'normal' : 'easy',
+                            exercises: actualExercises,
+                          }),
+                        });
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        setSubmitStatus('success');
+                        setShowFeedback(false);
+                        setSetLogs({});
+                        setFeedbackNote('');
+                        setTimeout(() => setSubmitStatus('idle'), 2000);
+                        onFeedback(feedbackRpe, feedbackNote);
+                      } catch {
+                        setSubmitStatus('error');
+                      }
+                    }}
+                  >
+                    {submitStatus === 'submitting' ? '提交中...' : '提交训练记录'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })() : (
         <div className="card-sm" style={{ padding: 20, textAlign: 'center', color: 'var(--s400)', marginTop: 8 }}>
           今日暂无训练计划
           <br />
@@ -540,140 +680,6 @@ function TodayTab({
         </div>
       )}
 
-      {todayPlan && !showFeedback && (
-        <button
-          type="button"
-          onClick={() => setShowFeedback(true)}
-          style={{
-            width: '100%', height: 48, borderRadius: 14,
-            background: 'linear-gradient(135deg, var(--p), var(--p4))',
-            border: 'none', color: '#fff',
-            fontSize: 14, fontWeight: 700,
-            marginTop: 16, cursor: 'pointer',
-            boxShadow: '0 4px 16px rgba(108,99,255,.3)',
-          }}
-        >
-          完成训练 · 提交反馈
-        </button>
-      )}
-
-      {/* 课后反馈弹窗 */}
-      {showFeedback && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 200,
-            background: 'rgba(0,0,0,0.5)',
-            backdropFilter: 'blur(8px)',
-            display: 'flex',
-            alignItems: 'flex-end',
-            justifyContent: 'center',
-          }}
-          onClick={() => setShowFeedback(false)}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 480,
-              background: '#fff',
-              borderRadius: '20px 20px 0 0',
-              padding: 24,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>课后反馈</div>
-
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--s500)',
-                marginBottom: 8,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-              }}
-            >
-              疲劳度 / RPE
-            </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-              {[
-                { v: 5, label: '很轻松' },
-                { v: 6, label: '还好' },
-                { v: 7, label: '适中' },
-                { v: 8, label: '有点累' },
-                { v: 9, label: '很累' },
-                { v: 10, label: '力竭' },
-              ].map(({ v, label }) => (
-                <button
-                  key={v}
-                  type="button"
-                  style={{
-                    flex: 1,
-                    height: 54,
-                    borderRadius: 10,
-                    border: '1.5px solid',
-                    borderColor: feedbackRpe === v ? 'var(--p)' : 'var(--s200)',
-                    background: feedbackRpe === v ? 'var(--p2)' : 'var(--s50)',
-                    color: feedbackRpe === v ? 'var(--p)' : 'var(--s600)',
-                    fontWeight: 700,
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 3,
-                    transition: 'all .15s',
-                  }}
-                  onClick={() => setFeedbackRpe(v)}
-                >
-                  <span style={{ fontSize: 14, fontWeight: 800 }}>{v}</span>
-                  <span style={{ fontSize: 10, opacity: 0.8 }}>{label}</span>
-                </button>
-              ))}
-            </div>
-
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--s500)',
-                marginBottom: 6,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-              }}
-            >
-              今日感受
-            </div>
-            <textarea
-              className="textarea"
-              rows={3}
-              placeholder="今天感受、最喜欢的动作、下次想挑战的..."
-              value={feedbackNote}
-              onChange={(e) => setFeedbackNote(e.target.value)}
-              style={{ marginBottom: 12 }}
-            />
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-o" style={{ flex: 1 }} onClick={() => setShowFeedback(false)}>
-                取消
-              </button>
-              <button
-                className="btn btn-p"
-                style={{ flex: 2 }}
-                onClick={() => {
-                  onFeedback(feedbackRpe, feedbackNote);
-                  setShowFeedback(false);
-                  setFeedbackNote('');
-                }}
-              >
-                提交反馈
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1057,6 +1063,9 @@ function ProgressTab({ client }: { client: Client }) {
         </div>
       )}
 
+      {/* ── 心率趋势 ── */}
+      <HrTrendSection clientId={client.id} />
+
       {/* ── AI进度报告 ── */}
       <div className="card-sm" style={{
         padding: 16, marginTop: 10,
@@ -1120,7 +1129,39 @@ function ProgressTab({ client }: { client: Client }) {
 
 // ── 历史 Tab ──────────────────────────────────────────────────
 function HistoryTab({ client }: { client: Client }) {
-  const sessions = [...(client.sessions || [])].reverse();
+  const [apiSessions, setApiSessions] = useState<any[] | null>(null);
+  const [histLoading, setHistLoading] = useState(true);
+
+  useEffect(() => {
+    if (!client.id) { setHistLoading(false); return; }
+    setHistLoading(true);
+    fetch(stuApiUrl(`/api/sessions?clientId=${encodeURIComponent(client.id)}&limit=100`))
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((json: any) => {
+        const list: any[] = Array.isArray(json) ? json : (json.sessions || []);
+        // 合并 client.sessions（本地） + API 结果，去重
+        const local = client.sessions || [];
+        const merged = [...list];
+        for (const _s of local) {
+          const s = _s as any;
+          const dup = merged.some(a =>
+            (a._id && s._id && a._id === s._id) ||
+            (a.id && s.id && a.id === s.id) ||
+            (a.date && s.date && a.date === s.date && String(a.week || '') === String(s.week || ''))
+          );
+          if (!dup) merged.push(s);
+        }
+        merged.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+        setApiSessions(merged);
+      })
+      .catch(() => setApiSessions(null))
+      .finally(() => setHistLoading(false));
+  }, [client.id]);
+
+  const sessions = histLoading
+    ? []
+    : (apiSessions ?? [...(client.sessions || [])].reverse());
+
   const [expandedSessions, setExpandedSessions] = useState<Set<number>>(new Set());
   const [showFullTraining, setShowFullTraining] = useState<number | null>(null);
 
@@ -1216,7 +1257,10 @@ function HistoryTab({ client }: { client: Client }) {
   return (
     <div>
       <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-.01em', marginBottom: 14 }}>训练历史</div>
-      {sessions.length > 0 ? (
+      {histLoading && (
+        <div style={{ textAlign: 'center', color: 'var(--s400)', padding: 32, fontSize: 12 }}>加载中...</div>
+      )}
+      {!histLoading && sessions.length > 0 ? (
         sessions.map((s, i) => {
           const isExpanded = expandedSessions.has(i);
           const heartRateData = getHeartRateData(s);
@@ -1461,228 +1505,26 @@ function HistoryTab({ client }: { client: Client }) {
   );
 }
 
-// ── 阶段饮食组件 ──────────────────────────────────────────────────
-interface MacroTarget {
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-}
-
-interface DietPlan {
-  id: string;
-  title: string;
-  period: string;
-  target: MacroTarget;
-  notes: string;
-  meals: any[];
-  createdAt: string;
-}
-
-function DietSection({ client }: { client: Client }) {
-  // 从教练端数据中获取饮食计划
-  const [dietPlan, setDietPlan] = useState<DietPlan | null>(null);
-
-  useEffect(() => {
-    // 尝试从教练端数据获取饮食计划
-    const coachClients = JSON.parse(localStorage.getItem('fika_coach_clients_v1') || '[]');
-    const coachClient = coachClients.find((c: any) => c.id === client.id || c.roadCode === client.roadCode);
-    
-    if (coachClient && coachClient.dietPlan) {
-      setDietPlan(coachClient.dietPlan);
-    } else {
-      // 如果没有教练端数据，使用默认数据
-      setDietPlan({
-        id: 'default',
-        title: '基础饮食计划',
-        period: '当前阶段',
-        target: {
-          calories: client.weight ? Math.round(client.weight * 33) : 2375,
-          protein: client.weight ? Math.round(client.weight * 1.8) : 130,
-          carbs: client.weight ? Math.round(client.weight * 4.5) : 350,
-          fat: client.weight ? Math.round(client.weight * 1.0) : 75,
-        },
-        notes: '根据当前体重和训练目标自动计算',
-        meals: [],
-        createdAt: new Date().toISOString(),
-      });
-    }
-  }, [client]);
-
-  if (!dietPlan) {
-    return (
-      <div className="card-sm" style={{ padding: 16, marginBottom: 10 }}>
-        <div className="lbl" style={{ marginBottom: 10 }}>阶段饮食 / Phase Nutrition</div>
-        <div style={{ fontSize: 12, color: 'var(--s600)' }}>加载中...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="card-sm" style={{ padding: 16, marginBottom: 10 }}>
-
-      {/* 标题行 */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#1f2438', letterSpacing: '.04em' }}>
-            {dietPlan.title}
-          </div>
-          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2, letterSpacing: '.06em' }}>
-            阶段饮食 · {dietPlan.period}
-          </div>
-        </div>
-        <div style={{
-          fontSize: 11, fontWeight: 700,
-          padding: '4px 10px', borderRadius: 20,
-          background: 'rgba(93,100,214,.1)',
-          color: '#5d64d6',
-          border: '1px solid rgba(93,100,214,.2)',
-        }}>
-          {dietPlan.target.calories} kcal / 天
-        </div>
-      </div>
-
-      {/* 三大营养素卡片 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
-        {[
-          {
-            label: '蛋白质',
-            value: dietPlan.target.protein,
-            unit: 'g',
-            pct: 25,
-            color: '#0D9488',
-            bg: 'rgba(13,148,136,.08)',
-            border: 'rgba(13,148,136,.2)',
-            min: Math.round(dietPlan.target.protein * 0.9),
-            max: Math.round(dietPlan.target.protein * 1.1),
-          },
-          {
-            label: '碳水',
-            value: dietPlan.target.carbs,
-            unit: 'g',
-            pct: 50,
-            color: '#5d64d6',
-            bg: 'rgba(93,100,214,.08)',
-            border: 'rgba(93,100,214,.2)',
-            min: Math.round(dietPlan.target.carbs * 0.95),
-            max: Math.round(dietPlan.target.carbs * 1.08),
-          },
-          {
-            label: '脂肪',
-            value: dietPlan.target.fat,
-            unit: 'g',
-            pct: 25,
-            color: '#D97706',
-            bg: 'rgba(217,119,6,.08)',
-            border: 'rgba(217,119,6,.2)',
-            min: Math.round(dietPlan.target.fat * 0.9),
-            max: Math.round(dietPlan.target.fat * 1.2),
-          },
-        ].map((macro) => (
-          <div key={macro.label} style={{
-            borderRadius: 12,
-            border: `1px solid ${macro.border}`,
-            background: macro.bg,
-            padding: '10px 10px 8px',
-          }}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: macro.color, letterSpacing: '.08em', marginBottom: 4 }}>
-              {macro.label}
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 900, color: '#1f2438', lineHeight: 1, letterSpacing: '-.02em' }}>
-              {macro.value}
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', marginLeft: 2 }}>{macro.unit}</span>
-            </div>
-            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 3 }}>
-              {macro.min}–{macro.max}{macro.unit}
-            </div>
-            {/* 进度条 */}
-            <div style={{ marginTop: 6, height: 3, borderRadius: 2, background: 'rgba(148,163,184,.2)', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${macro.pct * 2}%`, background: macro.color, borderRadius: 2, opacity: .7 }} />
-            </div>
-            <div style={{ fontSize: 9, color: macro.color, marginTop: 3, fontWeight: 700 }}>
-              占比 {macro.pct}%
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* 训练时间建议 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-        {[
-          {
-            icon: '⚡',
-            label: '训练前 1 小时',
-            tip: '香蕉 + 少量蛋白质',
-            color: '#D97706',
-            bg: 'rgba(217,119,6,.06)',
-          },
-          {
-            icon: '💪',
-            label: '训练后 30 分钟',
-            tip: '乳清蛋白 + 快速碳水',
-            color: '#0D9488',
-            bg: 'rgba(13,148,136,.06)',
-          },
-        ].map((item) => (
-          <div key={item.label} style={{
-            borderRadius: 10,
-            background: item.bg,
-            border: `1px solid ${item.color}22`,
-            padding: '8px 10px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 3,
-          }}>
-            <div style={{ fontSize: 14 }}>{item.icon}</div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: item.color }}>{item.label}</div>
-            <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4 }}>{item.tip}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* 饮食原则（如果有notes就显示，没有显示默认一句话） */}
-      <div style={{
-        padding: '8px 12px',
-        borderRadius: 8,
-        background: 'rgba(248,250,253,.9)',
-        border: '1px solid rgba(226,232,240,.7)',
-        fontSize: 12,
-        color: '#64748b',
-        lineHeight: 1.6,
-      }}>
-        {dietPlan.notes || '优先天然食材，减少精制糖。每日饮水体重 × 35ml。'}
-      </div>
-    </div>
-  );
-}
 
 // ── 档案 Tab ──────────────────────────────────────────────────
 function ProfileTab({ client }: { client: Client }) {
   const assessments = Array.isArray((client as any).assessments)
     ? [...(client as any).assessments]
         .filter((a: any) => a?.date)
-        .sort((a: any, b: any) =>
-          new Date(b.date).getTime() - new Date(a.date).getTime()
-        )
+        .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
     : [];
   const latestA = assessments[0] || {};
 
   return (
     <div>
       <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-.01em', marginBottom: 14 }}>我的档案</div>
-
-      {/* 伤病限制 */}
       {client.injury && (
         <div className="card-sm" style={{ padding: 14, background: 'rgba(245,158,11,.04)', borderColor: 'rgba(245,158,11,.3)', marginBottom: 10 }}>
-          <div className="lbl" style={{ color: 'var(--a)', marginBottom: 4 }}>
-            ⚠️ 伤病限制
-          </div>
+          <div className="lbl" style={{ color: 'var(--a)', marginBottom: 4 }}>⚠️ 伤病限制</div>
           <div style={{ fontSize: 12, color: 'var(--s700)' }}>{client.injury}</div>
           <div style={{ fontSize: 10, color: 'var(--s400)', marginTop: 4 }}>AI 已自动规避相关动作</div>
         </div>
       )}
-
-      {/* 功能性评估 */}
       <div className="card-sm" style={{ padding: 16, marginBottom: 10 }}>
         <div className="lbl" style={{ marginBottom: 10 }}>功能性评估</div>
         {[
@@ -1691,17 +1533,12 @@ function ProfileTab({ client }: { client: Client }) {
           { label: '单腿平衡', value: (latestA as any).balance ? `${(latestA as any).balance}s` : '—', color: 'var(--g)' },
           { label: '训练方式', value: isPro(client.membershipLevel) ? '动力链训练' : '传统分化训练', color: 'var(--p)' },
         ].map((item) => (
-          <div
-            key={item.label}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--s100)', fontSize: 12 }}
-          >
+          <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--s100)', fontSize: 12 }}>
             <span style={{ color: 'var(--s600)' }}>{item.label}</span>
             <span style={{ fontWeight: 700, color: item.color }}>{item.value}</span>
           </div>
         ))}
       </div>
-
-      {/* 基本信息 */}
       <div className="card-sm" style={{ padding: 16, marginBottom: 10 }}>
         <div className="lbl" style={{ marginBottom: 10 }}>基本信息</div>
         {[
@@ -1734,15 +1571,187 @@ function ProfileTab({ client }: { client: Client }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
 
-      {/* 阶段饮食 */}
-      <DietSection client={client} />
+// ── 心率趋势小节（ProgressTab内使用）──────────────────────────
+function HrTrendSection({ clientId }: { clientId: string }) {
+  const [pts, setPts] = useState<{ date: string; hrAvg: number }[]>([]);
+
+  useEffect(() => {
+    if (!clientId) return;
+    const base = import.meta.env.PROD ? '' : (((import.meta as any).env?.VITE_API_BASE_URL as string) || '');
+    const url = base ? base.replace(/\/$/, '') + `/api/sessions?clientId=${encodeURIComponent(clientId)}&limit=10` : `/api/sessions?clientId=${encodeURIComponent(clientId)}&limit=10`;
+    fetch(url)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((json: any) => {
+        const list: any[] = Array.isArray(json) ? json : (json.sessions || []);
+        const filtered = list
+          .filter((s: any) => typeof s.hrAvg === 'number' && s.hrAvg > 0)
+          .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+          .slice(-10)
+          .map((s: any) => ({ date: String(s.date || '').slice(5, 10), hrAvg: s.hrAvg as number }));
+        setPts(filtered);
+      })
+      .catch(() => setPts([]));
+  }, [clientId]);
+
+  if (pts.length < 2) return null;
+
+  const W = 300; const H = 80;
+  const padL = 6; const padR = 6; const padT = 8; const padB = 6;
+  const vals = pts.map(p => p.hrAvg);
+  const yMin = Math.max(40, Math.min(...vals) - 8);
+  const yMax = Math.min(200, Math.max(...vals) + 8);
+  const x = (i: number) => padL + (i / (pts.length - 1)) * (W - padL - padR);
+  const y = (v: number) => padT + (1 - (v - yMin) / Math.max(yMax - yMin, 1)) * (H - padT - padB);
+  const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.hrAvg).toFixed(1)}`).join(' ');
+
+  return (
+    <div className="card-sm" style={{ padding: 14, marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>心率趋势</div>
+        <div style={{ fontSize: 10, color: 'var(--s400)' }}>近 {pts.length} 节课 · hrAvg</div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, overflow: 'visible' }}>
+        <defs>
+          <linearGradient id="hrGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f97316" stopOpacity="0.18" />
+            <stop offset="100%" stopColor="#f97316" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={`${pathD} L${x(pts.length-1).toFixed(1)} ${H} L${padL} ${H} Z`} fill="url(#hrGrad)" />
+        <path d={pathD} fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {pts.map((p, i) => (
+          <circle key={i} cx={x(i)} cy={y(p.hrAvg)} r="3" fill="#fff" stroke="#f97316" strokeWidth="1.5" />
+        ))}
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+        <span style={{ fontSize: 9, color: 'var(--s400)' }}>{pts[0].date}</span>
+        <span style={{ fontSize: 9, color: 'var(--s400)' }}>{pts[pts.length - 1].date}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── 饮食 Tab ────────────────────────────────────────────────
+const STU_API_BASE = import.meta.env.PROD ? '' : (((import.meta as any).env?.VITE_API_BASE_URL as string) || '');
+function stuApiUrl(path: string) {
+  return STU_API_BASE ? STU_API_BASE.replace(/\/$/, '') + path : path;
+}
+
+interface StuAiDraft {
+  id: string;
+  status: 'pending' | 'approved' | 'rejected';
+  output_result: string;
+  createdAt: string;
+}
+
+type StuDayMenu = { breakfast?: string; lunch?: string; dinner?: string; snack?: string; [k: string]: string | undefined };
+
+function parseStuDiet(raw: string): Record<string, StuDayMenu> | null {
+  try {
+    const j = JSON.parse(raw);
+    if (j && typeof j === 'object' && !Array.isArray(j)) return j;
+  } catch { /**/ }
+  return null;
+}
+
+const STU_DAY: Record<string, string> = { monday:'周一', tuesday:'周二', wednesday:'周三', thursday:'周四', friday:'周五', saturday:'周六', sunday:'周日' };
+const STU_MEAL: Record<string, string> = { breakfast:'早餐', lunch:'午餐', dinner:'晚餐', snack:'加餐' };
+
+function DietTab({ client }: { client: Client }) {
+  const [drafts, setDrafts] = useState<StuAiDraft[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+
+  useEffect(() => {
+    if (!client.id) return;
+    setLoading(true);
+    fetch(stuApiUrl(`/api/ai/drafts?clientId=${encodeURIComponent(client.id)}&planType=diet&status=approved`))
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((json) => {
+        const list: StuAiDraft[] = Array.isArray(json) ? json : (json.drafts || []);
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setDrafts(list);
+      })
+      .catch(() => setDrafts([]))
+      .finally(() => setLoading(false));
+  }, [client.id]);
+
+  if (loading) return <div style={{ padding: 32, textAlign: 'center', color: 'var(--s500)', fontSize: 13 }}>加载中...</div>;
+
+  if (drafts.length === 0) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🥗</div>
+        <div style={{ fontSize: 14, color: 'var(--s500)', fontWeight: 600 }}>教练暂未制定饮食计划</div>
+        <div style={{ fontSize: 12, color: 'var(--s400)', marginTop: 6 }}>待教练生成并审核后将在此显示</div>
+      </div>
+    );
+  }
+
+  const current = drafts[selectedIdx];
+  const parsed = parseStuDiet(current.output_result);
+
+  return (
+    <div style={{ padding: '0 4px' }}>
+      {drafts.length > 1 && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto' }}>
+          {drafts.map((d, i) => (
+            <button
+              key={d.id}
+              type="button"
+              onClick={() => setSelectedIdx(i)}
+              style={{
+                flexShrink: 0, padding: '4px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+                border: i === selectedIdx ? '1.5px solid var(--p)' : '1px solid var(--s200)',
+                background: i === selectedIdx ? 'var(--p2)' : 'transparent',
+                color: i === selectedIdx ? 'var(--p)' : 'var(--s500)',
+                cursor: 'pointer',
+              }}
+            >
+              {new Date(d.createdAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {parsed ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {Object.entries(parsed).map(([dayKey, meals]) => (
+            <div key={dayKey} style={{
+              background: 'rgba(255,255,255,.7)', border: '1px solid var(--s100)',
+              borderRadius: 14, padding: '12px 14px',
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--p)', marginBottom: 8, letterSpacing: '.04em' }}>
+                {STU_DAY[dayKey.toLowerCase()] || dayKey}
+              </div>
+              {(['breakfast','lunch','dinner','snack'] as const).map(mk => {
+                const content = meals[mk];
+                if (!content) return null;
+                return (
+                  <div key={mk} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--s100)', fontSize: 13 }}>
+                    <span style={{ width: 32, color: 'var(--s500)', fontWeight: 700, flexShrink: 0, fontSize: 11 }}>{STU_MEAL[mk]}</span>
+                    <span style={{ color: 'var(--s800)', lineHeight: 1.5 }}>{content}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <pre style={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--s700)', background: 'rgba(255,255,255,.6)', padding: 12, borderRadius: 12 }}>
+          {current.output_result}
+        </pre>
+      )}
     </div>
   );
 }
 
 // ── 主组件 ────────────────────────────────────────────────────
-type StuTab = 'today' | 'progress' | 'history' | 'profile';
+type StuTab = 'today' | 'progress' | 'history' | 'profile' | 'diet';
 
 interface StudentPortalProps {
   display: 'block' | 'none';
@@ -1912,6 +1921,17 @@ export function StudentPortal({ display, onLogout, client: propClient }: Student
         </svg>
       ),
     },
+    {
+      key: 'diet',
+      label: '饮食',
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2a9 9 0 00-9 9c0 4.97 4.03 9 9 9s9-4.03 9-9" />
+          <path d="M12 6v6l4 2" />
+          <path d="M16 2c0 3-4 5-4 5s-4-2-4-5" />
+        </svg>
+      ),
+    },
   ];
 
   return (
@@ -1964,6 +1984,7 @@ export function StudentPortal({ display, onLogout, client: propClient }: Student
             {tab === 'progress' && <ProgressTab client={client} />}
             {tab === 'history' && <HistoryTab client={client} />}
             {tab === 'profile' && <ProfileTab client={client} />}
+            {tab === 'diet' && <DietTab client={client} />}
           </>
         )}
       </div>

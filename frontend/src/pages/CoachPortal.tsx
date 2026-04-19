@@ -8,7 +8,7 @@ import { FinancePage } from '../components/coach/FinancePage';
 import { HeartRatePage } from '../components/coach/HeartRatePage';
 import { DietPage } from '../components/coach/DietPage';
 import { CoachSessionView } from '../components/CoachSessionView';
-import { getClientsFromCache, saveClient, updateClientsCache } from '@/lib/store';
+import { getClientsFromCache, updateClientsCache } from '@/lib/store';
 import { useSessions } from '@/features/sessions/useSessions';
 
 export function CoachPortal({
@@ -46,28 +46,22 @@ export function CoachPortal({
         onClose={() => setSessionOpen(false)}
         onRecordSession={async (session) => {
           if (!sessionClient) return;
-          const updated: Client = {
-            ...sessionClient,
-            sessions: [...(sessionClient.sessions || []), session],
-          };
+          // 只更新内存缓存（不把 session 写进 Client 文档）
+          const updated: Client = { ...sessionClient };
           setSessionClient(updated);
-          try {
-            await saveClient(updated);
-            const all = getClientsFromCache();
-            const idx = all.findIndex(c => c.id === updated.id);
-            if (idx >= 0) all[idx] = updated;
-            else all.push(updated);
-            updateClientsCache(all);
-            // 通知子组件（ClientsPage / PlanningPage）从 cache 重新加载
-            window.dispatchEvent(new Event('storage'));
-            void createSession({
-              ...session,
-              date: String((session as any).date || new Date().toISOString().slice(0, 10)),
-              coachCode: coachCode || '',
-            }).catch((e: unknown) => console.warn('[portal] session dual-write failed:', e));
-          } catch (err) {
-            console.error('[app] Failed to save session:', err);
-          }
+          const all = getClientsFromCache();
+          const idx = all.findIndex(c => c.id === updated.id);
+          if (idx >= 0) all[idx] = updated;
+          else all.push(updated);
+          updateClientsCache(all);
+          // 通知子组件（ClientsPage / PlanningPage）从 cache 重新加载
+          window.dispatchEvent(new Event('storage'));
+          // Session 唯一持久化路径
+          void createSession({
+            ...session,
+            date: String((session as any).date || new Date().toISOString().slice(0, 10)),
+            coachCode: coachCode || '',
+          }).catch((e: unknown) => console.warn('[portal] createSession failed:', e));
         }}
       />
     );

@@ -16,6 +16,7 @@ import aiRouter from './routes/ai.js';
 import sessionsRouter from './routes/sessions.js';
 import financesRouter from './routes/finances.js';
 import adminRouter from './routes/admin.js';
+import coachRulesRouter from './routes/coachRules.js';
 import { recommendBlock, generateWeekFramework } from './blockPlanner.js';
 import { blockNames, weekThemes, dayStyles, GOAL_KEY_MAP, DIR_KEY_MAP, distributeWeekdays, generatePlanNames } from './planNaming.js';
 
@@ -31,6 +32,7 @@ app.use('/api/ai', aiRouter);
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/finances', financesRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/coach-rules', coachRulesRouter);
 
 const DEFAULT_TEMP_USER_ID = process.env.DEFAULT_TEMP_USER_ID || 'guest';
 
@@ -601,6 +603,23 @@ app.put('/api/coaches', async (req, res) => {
     }
 
     res.status(500).json({ error: 'Failed to update coaches', details: String(err) });
+  }
+});
+
+// POST /api/coaches — 单条教练 upsert
+app.post('/api/coaches', async (req, res) => {
+  try {
+    const { code, name, specialties } = req.body || {};
+    if (!code || !name) return res.status(400).json({ error: 'code and name are required' });
+    const doc = await Coach.findOneAndUpdate(
+      { code: String(code).toUpperCase() },
+      { $set: { code: String(code).toUpperCase(), name: String(name), specialties: specialties || [], updatedAt: new Date() } },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, code: doc.code });
+  } catch (err) {
+    console.error('[backend] POST /api/coaches failed:', err);
+    res.status(500).json({ error: 'Failed to add coach', details: String(err) });
   }
 });
 

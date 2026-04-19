@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
     if (coachCode) query.coachCode = String(coachCode);
     const sessions = await Session.find(query)
       .sort({ date: -1 })
-      .limit(Math.min(200, Number(limit)))
+      .limit(Math.min(1000, Number(limit)))
       .lean();
     res.json(sessions);
   } catch (err) {

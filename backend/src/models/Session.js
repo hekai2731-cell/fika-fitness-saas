@@ -31,6 +31,9 @@ const SessionSchema = new mongoose.Schema({
   block_index: { type: Number },
   block_week: { type: Number },
 
+  // 课前评估数据
+  pre_session_data: { type: mongoose.Schema.Types.Mixed },
+
   // 实际执行的动作详情（教练记录）
   exercises: [{ type: mongoose.Schema.Types.Mixed }],
 }, {

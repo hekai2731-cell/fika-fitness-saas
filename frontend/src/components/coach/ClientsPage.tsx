@@ -166,6 +166,12 @@ export function ClientsPage({
   const [approvalSuccess, setApprovalSuccess] = useState<string | null>(null);
   const [tierSwitchingId, setTierSwitchingId] = useState<string | null>(null);
 
+  // 教练偏好规则
+  const [coachRules, setCoachRules] = useState<any[]>([]);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [newRuleText, setNewRuleText] = useState('');
+  const [ruleSubmitting, setRuleSubmitting] = useState(false);
+
   const tierOrder: MembershipLevel[] = ['standard', 'advanced', 'professional', 'elite'];
 
   const resolveMembershipLevel = (c: Client | null): MembershipLevel => {
@@ -241,6 +247,42 @@ export function ClientsPage({
     };
     loadPendingSurveys();
   }, [coachCode]);
+
+  // 拉取规则
+  useEffect(() => {
+    if (!coachCode || !activeClient?.id) { setCoachRules([]); return; }
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/coach-rules?coachCode=${encodeURIComponent(coachCode)}&clientId=${encodeURIComponent(activeClient.id)}`);
+        if (res.ok) setCoachRules(await res.json());
+      } catch (e) { console.error('[rules] load failed', e); }
+    };
+    load();
+  }, [coachCode, activeClient?.id]);
+
+  const addRule = async () => {
+    if (!newRuleText.trim() || !coachCode || !activeClient) return;
+    setRuleSubmitting(true);
+    try {
+      const res = await fetch('/api/coach-rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coachCode, clientId: activeClient.id, rule: newRuleText.trim() }),
+      });
+      if (res.ok) {
+        const doc = await res.json();
+        setCoachRules(prev => [doc, ...prev]);
+        setNewRuleText('');
+      }
+    } catch (e) { console.error('[rules] add failed', e); } finally { setRuleSubmitting(false); }
+  };
+
+  const deleteRule = async (id: string) => {
+    try {
+      await fetch(`/api/coach-rules/${id}`, { method: 'DELETE' });
+      setCoachRules(prev => prev.filter(r => r._id !== id));
+    } catch (e) { console.error('[rules] delete failed', e); }
+  };
 
   const activeTier = resolveMembershipLevel(activeClient);
   const tier = tierMeta[activeTier];
@@ -1070,6 +1112,74 @@ export function ClientsPage({
               </div>
             )}
           </div>
+
+          {/* 教练偏好规则卡片 */}
+          <div className="section-cap" style={{ marginTop: 18 }}>
+            <span
+              style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
+              onClick={() => setRulesOpen(v => !v)}
+            >
+              {rulesOpen ? '▾' : '▸'} • COACH PREFERENCE RULES（教练偏好规则）
+              {coachRules.length > 0 && (
+                <span style={{
+                  fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 999,
+                  background: 'rgba(93,102,237,.12)', color: '#5d66ed',
+                }}>{coachRules.length}</span>
+              )}
+            </span>
+          </div>
+          {rulesOpen && (
+            <div className="assessment-card" style={{ marginTop: 4 }}>
+              {coachRules.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>暂无规则，添加后将自动注入 AI 生成提示词</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                  {coachRules.map(r => (
+                    <div key={r._id} style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 8,
+                      background: 'rgba(248,249,252,.9)', borderRadius: 8,
+                      padding: '7px 10px', border: '1px solid rgba(216,221,236,.6)',
+                    }}>
+                      <span style={{ flex: 1, fontSize: 12, color: '#25304a', lineHeight: 1.5 }}>{r.rule}</span>
+                      <button
+                        type="button"
+                        onClick={() => deleteRule(r._id)}
+                        style={{
+                          flexShrink: 0, fontSize: 10, fontWeight: 800,
+                          color: '#B42318', border: '1px solid rgba(180,35,24,.3)',
+                          background: 'rgba(255,236,233,.86)', borderRadius: 6,
+                          padding: '2px 8px', cursor: 'pointer',
+                        }}
+                      >删除</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  className="assessment-input"
+                  style={{ flex: 1 }}
+                  value={newRuleText}
+                  onChange={e => setNewRuleText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') void addRule(); }}
+                  placeholder="避免深蹲类动作，用腿举代替 / 该客户偏好机器训练，减少自由重量"
+                />
+                <button
+                  type="button"
+                  onClick={() => void addRule()}
+                  disabled={ruleSubmitting || !newRuleText.trim()}
+                  style={{
+                    height: 32, padding: '0 12px', borderRadius: 8, border: 'none',
+                    background: 'linear-gradient(120deg,rgba(124,132,244,.9),rgba(112,121,236,.88))',
+                    color: '#fff', fontSize: 11, fontWeight: 700,
+                    cursor: ruleSubmitting || !newRuleText.trim() ? 'not-allowed' : 'pointer',
+                    opacity: ruleSubmitting || !newRuleText.trim() ? 0.6 : 1,
+                    whiteSpace: 'nowrap',
+                  }}
+                >{ruleSubmitting ? '...' : '添加规则'}</button>
+              </div>
+            </div>
+          )}
 
           <div className="section-cap" style={{ marginTop: 18 }}>• ASSESSMENT & QUESTIONNAIRE（问卷筛查）</div>
           <div className="assessment-card">

@@ -1,9 +1,19 @@
 import { Router } from 'express';
 import { AiDraft } from '../models/AiDraft.js';
+import { CoachRule } from '../models/CoachRule.js';
+import { SystemConfig } from '../models/SystemConfig.js';
 import { TrainingPlan } from '../models/TrainingPlan.js';
 import { generateSessionPlan } from '../sessionPlan.js';
 import { generateWeekPlan, generateFullPlan } from '../planning.js';
 import { generateDietPlan } from '../dietPlan.js';
+
+// planType 对应 ai_switches 字段名
+const PLAN_TYPE_SWITCH_KEY = {
+  session: 'training_session',
+  week:    'training_week',
+  full:    'training_ultra',
+  diet:    'nutrition_phase',
+};
 
 const router = Router();
 
@@ -14,6 +24,27 @@ router.post('/generate', async (req, res) => {
     const { planType, clientId, coachCode } = payload;
 
     if (!planType) return res.status(400).json({ error: 'planType is required' });
+
+    // 开关检查
+    const switchKey = PLAN_TYPE_SWITCH_KEY[planType];
+    if (switchKey) {
+      const cfg = await SystemConfig.findOne({ key: 'ai_switches' }).lean();
+      const switches = cfg?.value || {};
+      if (switches[switchKey] === false) {
+        return res.status(403).json({ error: '该AI功能已被管理员关闭' });
+      }
+    }
+
+    // 查询规则：教练全局规则 + 该客户专属规则 + SYSTEM 级全局规则，注入 prompt
+    {
+      const orConditions = [{ coachCode: 'SYSTEM', clientId: null }];
+      if (coachCode) {
+        orConditions.push({ coachCode, clientId: null });
+        if (clientId) orConditions.push({ coachCode, clientId });
+      }
+      const rules = await CoachRule.find({ active: true, $or: orConditions }).lean();
+      payload.coachRules = rules.map(r => r.rule);
+    }
 
     let result;
     if (planType === 'session') result = await generateSessionPlan(payload);

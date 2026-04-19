@@ -536,8 +536,8 @@ ${lastWeekBrief}
     parts.push(`- 恢复状态：${psd.recoveryStatus}`);
     parts.push(`- 今日状态：${psd.todayStatus}`);
     parts.push(`- 不适区域：${(psd.discomfortAreas || []).join('、') || '无'}`);
-    if (psd.customNotes) parts.push(`- 教练备注：${psd.customNotes}`);
-    if (psd.coachNote) parts.push(`- 教练备注：${psd.coachNote}`);
+    const coachNote = psd.coachNote || psd.customNotes || '';
+    if (coachNote) parts.push(`- 教练备注：${coachNote}`);
 
     const isRecoveryPoor = String(psd.recoveryStatus || '').includes('酸痛') || String(psd.todayStatus || '').includes('状态差');
     const hasDiscomfort = Array.isArray(psd.discomfortAreas) && psd.discomfortAreas.some((a) => a !== '无不适');

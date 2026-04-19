@@ -39,6 +39,7 @@ interface Client {
   weeks?: number;
   injury?: string;
   coachCode?: string;
+  coachName?: string;
   blocks?: Block[];
   sessions?: Session[];
   weeklyData?: WeeklyData[];
@@ -288,27 +289,83 @@ function FieldLabel({ children }: { children: ReactNode }) {
 }
 
 // ── 总览 Tab ─────────────────────────────────────────────────
+interface DashboardData {
+  totalClients: number;
+  totalCoaches: number;
+  totalRevenue: number;
+  recentSessions: number;
+  recentSessionList: Array<{ clientId?: string; date?: string; duration?: number; rpe?: number; note?: string }>;
+}
+
 function OverviewTab({ clients, coaches }: { clients: Client[]; coaches: Coach[] }) {
-  const totalRevenue = clients.reduce((s, c) => (c.weeklyData || []).reduce((ss, w) => ss + (w.paid || 0), s), 0);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [dashLoading, setDashLoading] = useState(true);
+  const [lastSessionMap, setLastSessionMap] = useState<Map<string, string>>(new Map());
+  const [churnLoading, setChurnLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/admin/dashboard');
+        if (res.ok) setDashboardData(await res.json() as DashboardData);
+      } catch (e) {
+        console.error('[OverviewTab] dashboard fetch failed:', e);
+      } finally {
+        setDashLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/sessions?limit=200');
+        if (res.ok) {
+          const sessions: Array<{ clientId?: string; date?: string }> = await res.json();
+          const map = new Map<string, string>();
+          sessions.forEach(s => {
+            if (!s.clientId || !s.date) return;
+            const prev = map.get(s.clientId);
+            if (!prev || s.date > prev) map.set(s.clientId, s.date);
+          });
+          setLastSessionMap(map);
+        }
+      } catch (e) {
+        console.error('[OverviewTab] churn sessions fetch failed:', e);
+      } finally {
+        setChurnLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   const totalBalance = clients.reduce((s, c) => s + calcBalance(c), 0);
-  const totalSessions = clients.reduce((s, c) => s + (c.sessions || []).length, 0);
   const lowBalanceClients = clients.filter((c) => calcBalance(c) < 500);
 
-  const recentActivity = clients
-    .flatMap((c) => (c.sessions || []).map((s) => ({ ...s, clientName: c.name })))
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 8);
+  const dash = dashboardData;
+  const ph = '--';
+
+  const recentActivity = dash?.recentSessionList
+    ? dash.recentSessionList.map(s => ({
+        ...s,
+        clientName: clients.find(c => c.id === s.clientId)?.name || s.clientId || '未知客户',
+      }))
+    : clients
+        .flatMap((c) => (c.sessions || []).map((s) => ({ ...s, clientName: c.name })))
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        .slice(0, 8);
 
   return (
     <div>
       {/* KPI */}
       <div className="admin-kpi-grid">
         {[
-          { label: '总客户', value: clients.length + '人', color: 'var(--p)' },
-          { label: '教练数', value: coaches.length + '人', color: 'var(--b)' },
-          { label: '总收入', value: '¥' + totalRevenue.toLocaleString(), color: 'var(--g)' },
+          { label: '总客户', value: dashLoading ? ph : (dash?.totalClients ?? clients.length) + '人', color: 'var(--p)' },
+          { label: '教练数', value: dashLoading ? ph : (dash?.totalCoaches ?? coaches.length) + '人', color: 'var(--b)' },
+          { label: '总收入', value: dashLoading ? ph : '¥' + (dash?.totalRevenue ?? 0).toLocaleString(), color: 'var(--g)' },
           { label: '总余额', value: '¥' + totalBalance.toLocaleString(), color: 'var(--a)' },
-          { label: '总课次', value: totalSessions + '节', color: 'var(--r)' },
+          { label: '总课次', value: dashLoading ? ph : (dash?.recentSessions ?? 0) + '节', color: 'var(--r)' },
         ].map((kpi) => (
           <div key={kpi.label} className="card-sm kpi-card" style={{ borderLeft: `3px solid ${kpi.color}` }}>
             <div className="lbl">{kpi.label}</div>
@@ -399,6 +456,63 @@ function OverviewTab({ clients, coaches }: { clients: Client[]; coaches: Coach[]
           )}
         </div>
       </div>
+
+      {/* 流失预警 */}
+      {(() => {
+        const now = Date.now();
+        const activeClients = clients.filter(c => !(c as any).deletedAt);
+        const atRisk = activeClients
+          .map(c => {
+            const lastDate = lastSessionMap.get(c.id);
+            const diffDays = lastDate
+              ? Math.floor((now - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24))
+              : null;
+            return { c, diffDays };
+          })
+          .filter(({ diffDays }) => diffDays === null || diffDays > 14)
+          .sort((a, b) => (b.diffDays ?? 9999) - (a.diffDays ?? 9999));
+
+        return (
+          <div className="card-sm" style={{ padding: 16, marginTop: 0 }}>
+            <div className="lbl" style={{ marginBottom: 10 }}>流失预警</div>
+            {churnLoading ? (
+              <div style={{ fontSize: 12, color: 'var(--s400)', padding: '4px 0' }}>加载中...</div>
+            ) : atRisk.length === 0 ? (
+              <div style={{
+                fontSize: 12, color: '#15803d', padding: '8px 10px',
+                background: '#f0fdf4', borderRadius: 8,
+              }}>✓ 所有客户均在 14 天内有上课记录</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                {atRisk.map(({ c, diffDays }) => (
+                  <div
+                    key={c.id}
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '7px 0', borderBottom: '1px solid var(--s100)',
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</span>
+                      <span className="badge bp" style={{ fontSize: 9, marginLeft: 6 }}>{tierLabel(c.tier)}</span>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--r)', whiteSpace: 'nowrap' }}>
+                      {diffDays === null ? '从未上课' : `${diffDays} 天未上课`}
+                    </span>
+                  </div>
+                ))}
+                <div style={{
+                  marginTop: 8, padding: '8px 10px',
+                  background: 'var(--r2)', borderRadius: 8,
+                  fontSize: 11, color: '#991b1b',
+                }}>
+                  ⚠️ {atRisk.length} 位客户超过 14 天未上课，建议主动跟进
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -635,25 +749,26 @@ function CoachesTab({
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ name: '', specialties: '' });
 
-  const addCoach = () => {
+  const addCoach = async () => {
     if (!form.name.trim()) return;
     const existingCodes = new Set(coaches.map((c) => String(c.code).toUpperCase()));
     const code = generateRandomCode(existingCodes, 6);
-    const updated = [
-      ...coaches,
-      {
-        code,
-        name: form.name,
-        specialties: form.specialties
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-      },
-    ];
+    const specialties = form.specialties.split(',').map((s) => s.trim()).filter(Boolean);
+    const updated = [...coaches, { code, name: form.name, specialties }];
     onCoachesChange(updated);
     lsSet('coaches', updated);
     setShowModal(false);
     setForm({ name: '', specialties: '' });
+    void fetch('/api/coaches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, name: form.name, specialties }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    }).catch((err) => {
+      console.error('[AdminPortal] Failed to sync new coach:', err);
+      alert('教练已在本地添加，但同步服务器失败，请检查网络后重试。');
+    });
   };
 
   const deleteCoach = (coach: Coach) => {
@@ -779,6 +894,7 @@ function ClientsTab({
 }) {
   const [showModal, setShowModal] = useState(false);
   const [viewPlanClient, setViewPlanClient] = useState<Client | null>(null);
+  const [searchText, setSearchText] = useState('');
   const [form, setForm] = useState({
     name: '',
     gender: 'male',
@@ -786,6 +902,7 @@ function ClientsTab({
     membershipLevel: 'standard',
     weeks: '15',
     goal: '',
+    coachCode: '',
     weight: '',
     height: '',
     bf_pct: '',
@@ -798,6 +915,12 @@ function ClientsTab({
     notes: '',
   });
   const activeClients = clients.filter((c) => !c.deletedAt);
+  const filteredClients = searchText.trim()
+    ? activeClients.filter(c =>
+        c.name.includes(searchText) ||
+        String(c.roadCode || '').toUpperCase().includes(searchText.toUpperCase())
+      )
+    : activeClients;
   const deletedClients = clients.filter((c) => !!c.deletedAt);
 
   const assignCoach = (clientId: string, coachCode: string) => {
@@ -883,6 +1006,8 @@ function ClientsTab({
       clients.map((c) => String(c.roadCode || '').toUpperCase()).filter(Boolean)
     );
 
+    const selectedCoach = form.coachCode ? coaches.find(ch => ch.code === form.coachCode) : undefined;
+
     const newClient: Client = {
       id: 'CL' + Date.now(),
       roadCode: generateRandomCode(existingCodes, 6),
@@ -894,6 +1019,8 @@ function ClientsTab({
       tier: (form.membershipLevel === 'professional' || form.membershipLevel === 'elite') ? 'pro' : 'standard',
       membershipLevel: form.membershipLevel as any,
       goal: form.goal || '',
+      coachCode: selectedCoach?.code || '',
+      coachName: (selectedCoach as any)?.name || '',
       injury: '',
       blocks: [],
       sessions: [],
@@ -913,7 +1040,7 @@ function ClientsTab({
 
     setForm({
       name: '', gender: 'male', age: '', membershipLevel: 'standard',
-      weeks: '15', goal: '', weight: '', height: '', bf_pct: '',
+      weeks: '15', goal: '', coachCode: '', weight: '', height: '', bf_pct: '',
       smm_kg: '', waist_cm: '', hip_cm: '', rhr: '', sleep_hours: '',
       training_age_months: '', notes: '',
     });
@@ -1002,7 +1129,14 @@ function ClientsTab({
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
+        <input
+          className="inp"
+          style={{ flex: 1, maxWidth: 280 }}
+          placeholder="搜索姓名或路书码"
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+        />
         <button className="btn btn-p btn-sm" onClick={() => setShowModal(true)}>
           新建客户
         </button>
@@ -1034,7 +1168,7 @@ function ClientsTab({
               </tr>
             </thead>
             <tbody>
-              {activeClients.map((c) => (
+              {filteredClients.map((c) => (
                 <tr key={c.id} style={{ borderBottom: '1px solid var(--s100)' }}>
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ fontWeight: 600 }}>{c.name}</div>
@@ -1237,6 +1371,16 @@ function ClientsTab({
                 value={form.goal}
                 onChange={(e) => setForm(f => ({ ...f, goal: e.target.value }))} />
             </div>
+            <div>
+              <FieldLabel>分配教练</FieldLabel>
+              <select className="select" value={form.coachCode}
+                onChange={(e) => setForm(f => ({ ...f, coachCode: e.target.value }))}>
+                <option value="">暂不分配</option>
+                {coaches.map(ch => (
+                  <option key={ch.code} value={ch.code}>{ch.name}（{ch.code}）</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* 首次体测数据 */}
@@ -1344,8 +1488,38 @@ function ClientsTab({
 
 // ── 财务 Tab ──────────────────────────────────────────────────
 function FinanceTab({ clients }: { clients: Client[] }) {
+  const [sessionMap, setSessionMap] = useState<Map<string, { spent: number; count: number }>>(new Map());
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/sessions?limit=500');
+        if (res.ok) {
+          const sessions: Array<{ clientId?: string; price?: number }> = await res.json();
+          const map = new Map<string, { spent: number; count: number }>();
+          sessions.forEach(s => {
+            if (!s.clientId) return;
+            const cur = map.get(s.clientId) || { spent: 0, count: 0 };
+            map.set(s.clientId, { spent: cur.spent + (s.price || 0), count: cur.count + 1 });
+          });
+          setSessionMap(map);
+        }
+      } catch (e) {
+        console.error('[FinanceTab] sessions fetch failed:', e);
+      } finally {
+        setSessionsLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   const totalRevenue = clients.reduce((s, c) => (c.weeklyData || []).reduce((ss, w) => ss + (w.paid || 0), s), 0);
-  const totalBalance = clients.reduce((s, c) => s + calcBalance(c), 0);
+  const totalBalance = clients.reduce((s, c) => {
+    const paid = (c.weeklyData || []).reduce((ss, w) => ss + (w.paid || 0), 0);
+    const spent = sessionsLoading ? (c.sessions || []).reduce((ss, se) => ss + ((se as any).price || 0), 0) : (sessionMap.get(c.id)?.spent || 0);
+    return s + paid - spent;
+  }, 0);
   const avgBalance = clients.length ? Math.round(totalBalance / clients.length) : 0;
 
   return (
@@ -1353,9 +1527,9 @@ function FinanceTab({ clients }: { clients: Client[] }) {
       <div className="admin-kpi-grid">
         {[
           { label: '总收入', value: '¥' + totalRevenue.toLocaleString(), color: 'var(--g)' },
-          { label: '总余额', value: '¥' + totalBalance.toLocaleString(), color: 'var(--a)' },
+          { label: '总余额', value: sessionsLoading ? '--' : '¥' + totalBalance.toLocaleString(), color: 'var(--a)' },
           { label: '客户数', value: clients.length.toString(), color: 'var(--p)' },
-          { label: '平均余额', value: '¥' + avgBalance.toLocaleString(), color: 'var(--b)' },
+          { label: '平均余额', value: sessionsLoading ? '--' : '¥' + avgBalance.toLocaleString(), color: 'var(--b)' },
         ].map((kpi) => (
           <div key={kpi.label} className="card-sm kpi-card" style={{ borderLeft: `3px solid ${kpi.color}` }}>
             <div className="lbl">{kpi.label}</div>
@@ -1392,10 +1566,16 @@ function FinanceTab({ clients }: { clients: Client[] }) {
               </tr>
             </thead>
             <tbody>
-              {clients.map((c) => {
+              {sessionsLoading ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: '18px 12px', textAlign: 'center', color: 'var(--s400)', fontSize: 12 }}>
+                    加载中...
+                  </td>
+                </tr>
+              ) : clients.map((c) => {
                 const paid = (c.weeklyData || []).reduce((s, w) => s + (w.paid || 0), 0);
-                const spent = (c.sessions || []).reduce((s, se) => s + (se.price || 328), 0);
-                const bal = paid - spent;
+                const info = sessionMap.get(c.id) || { spent: 0, count: 0 };
+                const bal = paid - info.spent;
                 return (
                   <tr key={c.id} style={{ borderBottom: '1px solid var(--s100)' }}>
                     <td style={{ padding: '10px 12px', fontWeight: 600 }}>{c.name}</td>
@@ -1403,7 +1583,7 @@ function FinanceTab({ clients }: { clients: Client[] }) {
                       <span className="badge bp">{tierLabel(c.tier)}</span>
                     </td>
                     <td style={{ padding: '10px 12px' }}>¥{paid.toLocaleString()}</td>
-                    <td style={{ padding: '10px 12px' }}>¥{spent.toLocaleString()}</td>
+                    <td style={{ padding: '10px 12px' }}>¥{info.spent.toLocaleString()}</td>
                     <td
                       style={{
                         padding: '10px 12px',
@@ -1413,7 +1593,7 @@ function FinanceTab({ clients }: { clients: Client[] }) {
                     >
                       ¥{bal.toLocaleString()}
                     </td>
-                    <td style={{ padding: '10px 12px' }}>{(c.sessions || []).length}节</td>
+                    <td style={{ padding: '10px 12px' }}>{info.count}节</td>
                   </tr>
                 );
               })}
@@ -1428,17 +1608,48 @@ function FinanceTab({ clients }: { clients: Client[] }) {
 // ── AI开关 Tab ────────────────────────────────────────────────
 function AiSettingsTab() {
   const [apiKey, setApiKey] = useState(() => lsGet<string>('apiKey', ''));
-  const [settings, setSettings] = useState<AiSettings>(() => lsGet<AiSettings>('ai_settings', {}));
+  const [settings, setSettings] = useState<AiSettings>({});
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configSaving, setConfigSaving] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/admin/config');
+        if (res.ok) {
+          const data = await res.json() as AiSettings;
+          setSettings(data);
+        }
+      } catch (e) {
+        console.error('[AiSettingsTab] load config failed:', e);
+        setSettings(lsGet<AiSettings>('ai_settings', {}));
+      } finally {
+        setConfigLoading(false);
+      }
+    };
+    load();
+  }, []);
 
   const saveApiKey = () => {
     lsSet('apiKey', apiKey);
     alert('API Key 已保存');
   };
 
-  const toggleSetting = (key: keyof AiSettings, val: boolean) => {
+  const toggleSetting = async (key: keyof AiSettings, val: boolean) => {
     const updated = { ...settings, [key]: val };
     setSettings(updated);
-    lsSet('ai_settings', updated);
+    setConfigSaving(true);
+    try {
+      await fetch('/api/admin/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+    } catch (e) {
+      console.error('[AiSettingsTab] save config failed:', e);
+    } finally {
+      setConfigSaving(false);
+    }
   };
 
   const switches: { key: keyof AiSettings; title: string; desc: string }[] = [
@@ -1476,6 +1687,12 @@ function AiSettingsTab() {
       </div>
 
       <div className="card-sm" style={{ overflow: 'hidden' }}>
+        {configLoading && (
+          <div style={{ padding: '12px 16px', fontSize: 12, color: 'var(--s400)' }}>加载中...</div>
+        )}
+        {!configLoading && configSaving && (
+          <div style={{ padding: '4px 16px', fontSize: 11, color: 'var(--s400)' }}>保存中...</div>
+        )}
         {switches.map((sw) => (
           <div
             key={sw.key}
@@ -1507,8 +1724,169 @@ function AiSettingsTab() {
   );
 }
 
+// ── 规则管理 Tab ──────────────────────────────────────────────
+interface CoachRuleDoc {
+  _id: string;
+  coachCode: string;
+  clientId: string | null;
+  rule: string;
+  source: string;
+  createdAt: string;
+}
+
+function RulesTab({ coaches, clients }: { coaches: Coach[]; clients: Client[] }) {
+  const [rules, setRules] = useState<CoachRuleDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [systemInput, setSystemInput] = useState('');
+  const [systemAdding, setSystemAdding] = useState(false);
+
+  const fetchRules = async () => {
+    try {
+      const res = await fetch('/api/coach-rules');
+      if (res.ok) setRules(await res.json() as CoachRuleDoc[]);
+    } catch (e) {
+      console.error('[RulesTab] fetch rules failed:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void fetchRules(); }, []);
+
+  const deleteRule = async (id: string) => {
+    if (!window.confirm('确认删除该规则？')) return;
+    try {
+      await fetch(`/api/coach-rules/${id}`, { method: 'DELETE' });
+      setRules(prev => prev.filter(r => r._id !== id));
+    } catch (e) {
+      console.error('[RulesTab] delete rule failed:', e);
+      alert('删除失败');
+    }
+  };
+
+  const addSystemRule = async () => {
+    if (!systemInput.trim()) return;
+    setSystemAdding(true);
+    try {
+      const res = await fetch('/api/coach-rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coachCode: 'SYSTEM', clientId: null, rule: systemInput.trim(), source: 'manual' }),
+      });
+      if (res.ok) {
+        const doc = await res.json() as CoachRuleDoc;
+        setRules(prev => [doc, ...prev]);
+        setSystemInput('');
+      }
+    } catch (e) {
+      console.error('[RulesTab] add system rule failed:', e);
+      alert('添加失败');
+    } finally {
+      setSystemAdding(false);
+    }
+  };
+
+  const systemRules = rules.filter(r => r.coachCode === 'SYSTEM');
+  const coachRules = rules.filter(r => r.coachCode !== 'SYSTEM');
+
+  const grouped = coaches.reduce<Record<string, CoachRuleDoc[]>>((acc, ch) => {
+    acc[ch.code] = coachRules.filter(r => r.coachCode === ch.code);
+    return acc;
+  }, {});
+  const unknownCoaches = [...new Set(coachRules.map(r => r.coachCode))].filter(
+    code => !coaches.find(ch => ch.code === code)
+  );
+
+  const renderRuleRow = (r: CoachRuleDoc) => {
+    const clientName = r.clientId ? (clients.find(c => c.id === r.clientId)?.name || r.clientId) : '全局';
+    const date = r.createdAt ? new Date(r.createdAt).toLocaleDateString('zh-CN') : '—';
+    return (
+      <div key={r._id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--s100)' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>{r.rule}</div>
+          <div style={{ fontSize: 10, color: 'var(--s400)', marginTop: 3, display: 'flex', gap: 8 }}>
+            <span>{r.source === 'auto' ? '自动学习' : '手动添加'}</span>
+            <span>·</span>
+            <span>适用客户：{clientName}</span>
+            <span>·</span>
+            <span>{date}</span>
+          </div>
+        </div>
+        <button
+          className="btn btn-sm"
+          style={{ background: '#B42318', color: '#fff', flexShrink: 0 }}
+          onClick={() => deleteRule(r._id)}
+        >
+          删除
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {/* 全局系统规则 */}
+      <div className="card-sm" style={{ padding: 16, marginBottom: 16 }}>
+        <div className="lbl" style={{ marginBottom: 10 }}>全局系统规则（对所有教练生效）</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input
+            className="inp"
+            style={{ flex: 1 }}
+            placeholder="输入系统级规则，如：所有计划必须包含热身和拉伸"
+            value={systemInput}
+            onChange={e => setSystemInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') void addSystemRule(); }}
+          />
+          <button className="btn btn-p btn-sm" onClick={() => void addSystemRule()} disabled={systemAdding}>
+            {systemAdding ? '添加中...' : '添加'}
+          </button>
+        </div>
+        {loading ? (
+          <div style={{ fontSize: 12, color: 'var(--s400)' }}>加载中...</div>
+        ) : systemRules.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--s400)', padding: '6px 0' }}>暂无系统规则</div>
+        ) : (
+          systemRules.map(renderRuleRow)
+        )}
+      </div>
+
+      {/* 教练规则分组 */}
+      {loading ? null : (
+        <>
+          {coaches.map(ch => {
+            const cRules = grouped[ch.code] || [];
+            return (
+              <div key={ch.code} className="card-sm" style={{ padding: 16, marginBottom: 12 }}>
+                <div className="lbl" style={{ marginBottom: 8 }}>
+                  {ch.name}
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--s400)', marginLeft: 6 }}>({ch.code})</span>
+                  <span style={{ fontSize: 11, color: 'var(--s500)', marginLeft: 8 }}>{cRules.length} 条规则</span>
+                </div>
+                {cRules.length === 0 ? (
+                  <div style={{ fontSize: 12, color: 'var(--s400)', padding: '4px 0' }}>暂无规则</div>
+                ) : (
+                  cRules.map(renderRuleRow)
+                )}
+              </div>
+            );
+          })}
+          {unknownCoaches.map(code => (
+            <div key={code} className="card-sm" style={{ padding: 16, marginBottom: 12 }}>
+              <div className="lbl" style={{ marginBottom: 8 }}>
+                未知教练
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--s400)', marginLeft: 6 }}>({code})</span>
+              </div>
+              {coachRules.filter(r => r.coachCode === code).map(renderRuleRow)}
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── 主组件 ────────────────────────────────────────────────────
-type AdminTab = 'overview' | 'codes' | 'coaches' | 'clients' | 'finance' | 'ai-settings';
+type AdminTab = 'overview' | 'codes' | 'coaches' | 'clients' | 'finance' | 'ai-settings' | 'rules';
 
 interface AdminPortalProps {
   display: 'block' | 'none';
@@ -1638,6 +2016,7 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
       ),
     },
     { key: 'ai-settings', label: 'AI 开关', icon: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /> },
+    { key: 'rules', label: '规则管理', icon: <><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /><line x1="9" y1="12" x2="15" y2="12" /><line x1="9" y1="16" x2="13" y2="16" /></> },
   ];
 
   const tabTitles: Record<AdminTab, string> = {
@@ -1647,6 +2026,7 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
     clients: '客户管理',
     finance: '财务管理',
     'ai-settings': 'AI 功能开关',
+    rules: '规则管理',
   };
 
   return (
@@ -1707,8 +2087,10 @@ export function AdminPortal({ display, onLogout }: AdminPortalProps) {
             <ClientsTab clients={clients} coaches={coaches} onClientsChange={setClients} />
           ) : tab === 'finance' ? (
             <FinanceTab clients={clients} />
-          ) : (
+          ) : tab === 'ai-settings' ? (
             <AiSettingsTab />
+          ) : (
+            <RulesTab coaches={coaches} clients={clients} />
           )}
         </div>
       </div>

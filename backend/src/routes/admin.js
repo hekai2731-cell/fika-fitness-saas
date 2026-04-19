@@ -3,8 +3,34 @@ import { Client } from '../models/Client.js';
 import { Session } from '../models/Session.js';
 import { Finance } from '../models/Finance.js';
 import { Coach } from '../models/Coach.js';
+import { SystemConfig } from '../models/SystemConfig.js';
 
 const router = Router();
+
+// GET /api/admin/config — 读取系统配置（不需要鉴权，管理端内部使用）
+router.get('/config', async (req, res) => {
+  try {
+    const doc = await SystemConfig.findOne({ key: 'ai_switches' }).lean();
+    res.json(doc?.value || {});
+  } catch (err) {
+    res.status(500).json({ error: 'config query failed', details: String(err) });
+  }
+});
+
+// PUT /api/admin/config — 写入系统配置（不需要鉴权，管理端内部使用）
+router.put('/config', async (req, res) => {
+  try {
+    const value = req.body || {};
+    await SystemConfig.findOneAndUpdate(
+      { key: 'ai_switches' },
+      { key: 'ai_switches', value },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'config update failed', details: String(err) });
+  }
+});
 
 // 管理端鉴权中间件
 function requireAdminToken(req, res, next) {
@@ -36,6 +62,13 @@ router.get('/dashboard', async (req, res) => {
       totalCoaches,
       totalRevenue,
       recentSessions: recentSessions.length,
+      recentSessionList: recentSessions.map(s => ({
+        clientId: s.clientId,
+        date: s.date,
+        duration: s.duration,
+        rpe: s.rpe,
+        note: s.note,
+      })),
     });
   } catch (err) {
     res.status(500).json({ error: 'Dashboard query failed', details: String(err) });

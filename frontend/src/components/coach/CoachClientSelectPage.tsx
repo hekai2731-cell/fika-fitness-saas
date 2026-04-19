@@ -24,6 +24,7 @@ export function CoachClientSelectPage({
   coachCode?: string | null;
 }) {
   const [clients, setClients] = useState<Client[]>([]);
+  const [searchText, setSearchText] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -210,6 +211,20 @@ export function CoachClientSelectPage({
 
         <div style={{ marginTop: 14, position: 'relative', padding: 6, overflow: 'hidden' }}>
 
+          {/* 搜索框 + 客户数量 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <input
+              className="inp"
+              style={{ flex: 1, maxWidth: 280, height: 34, fontSize: 13, padding: '0 12px', borderRadius: 8 }}
+              placeholder="搜索姓名或路书码"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+            <span style={{ fontSize: 12, color: '#68708b', whiteSpace: 'nowrap' }}>
+              共 {clients.length} 位学员
+            </span>
+          </div>
+
           {clients.length === 0 ? (
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 13, color: '#68708b' }}>当前没有客户，先点右上角"新增客户"。下方是卡片预览样式：</div>
@@ -251,7 +266,11 @@ export function CoachClientSelectPage({
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, marginTop: 14 }}>
-              {clients.map((c) => {
+              {clients.filter(c =>
+                !searchText.trim() ||
+                c.name.includes(searchText.trim()) ||
+                ((c as any).roadCode || '').includes(searchText.trim())
+              ).map((c) => {
                 const level = resolveMembershipLevel(c);
                 const tierVisual = getTierVisual(level);
                 const cycleWeeks = (c as any).weeks_total || (c as any).weeks || Math.max(4, (c.blocks || []).length * 4);
