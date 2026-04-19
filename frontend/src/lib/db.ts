@@ -107,11 +107,17 @@ export type Client = {
   ltv_score?: number;
   bodyMetrics?: {
     bf_pct?: number;
+    smm_kg?: number;
     smm_pct?: number;
+    fat_kg?: number;
+    lean_kg?: number;
     waist_cm?: number;
     hip_cm?: number;
+    whr?: number;
     chest_cm?: number;
     rhr?: number;
+    bmi?: number;
+    bmr?: number;
     sleep_hours?: number;
     training_age_months?: number;
     squat_assessment?: 'good' | 'compensate' | 'limited';
@@ -128,10 +134,20 @@ export type Client = {
   assessments?: Array<{
     date: string;
     weight?: number;
+    height?: number;
     bf_pct?: number;
+    fat_kg?: number;
+    lean_kg?: number;
+    smm_kg?: number;
     smm_pct?: number;
-    rhr?: number;
     waist_cm?: number;
+    hip_cm?: number;
+    whr?: number;
+    rhr?: number;
+    bmr?: number;
+    bmi?: number;
+    sleep_hours?: number;
+    training_age_months?: number;
     score_snapshot?: number;
     notes?: string;
   }>;

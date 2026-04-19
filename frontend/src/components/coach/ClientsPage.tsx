@@ -133,19 +133,21 @@ export function ClientsPage({
 }) {
   const [clients, setClients] = useState<Client[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [metricLabels, setMetricLabels] = useState<string[]>(['体重 / WEIGHT', '身高 / HEIGHT', '年龄 / AGE', '体脂指数 / BMI', '肌肉量 / MUSCLE', '基础代谢 / BMR', '训练周期 / BLOCKS', '训练课次 / SESSIONS']);
-  const [editingMetric, setEditingMetric] = useState<number | null>(null);
   const [showAssessmentForm, setShowAssessmentForm] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [qrError, setQrError] = useState<string | null>(null);
   const [assessmentDraft, setAssessmentDraft] = useState({
+    weight: '',
+    height: '',
     bf_pct: '',
-    smm_pct: '',
+    smm_kg: '',
     waist_cm: '',
+    hip_cm: '',
     rhr: '',
     sleep_hours: '',
     training_age_months: '',
+    notes: '',
   });
   const [showTrainingHistory, setShowTrainingHistory] = useState(true);
 
@@ -165,17 +167,6 @@ export function ClientsPage({
   const [tierSwitchingId, setTierSwitchingId] = useState<string | null>(null);
 
   const tierOrder: MembershipLevel[] = ['standard', 'advanced', 'professional', 'elite'];
-
-  const metricLabelMap: Record<string, string> = {
-    WEIGHT: '体重 / WEIGHT',
-    HEIGHT: '身高 / HEIGHT',
-    AGE: '年龄 / AGE',
-    BMI: '体脂指数 / BMI',
-    MUSCLE: '肌肉量 / MUSCLE',
-    BMR: '基础代谢 / BMR',
-    BLOCKS: '训练周期 / BLOCKS',
-    SESSIONS: '训练课次 / SESSIONS',
-  };
 
   const resolveMembershipLevel = (c: Client | null): MembershipLevel => {
     if (!c) return 'standard';
@@ -204,34 +195,6 @@ export function ClientsPage({
       setActiveId(selectedClientId);
     }
   }, [clients, selectedClientId]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('fika_clients_copy');
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as {
-        metricLabels?: string[];
-      };
-      if (Array.isArray(parsed.metricLabels) && parsed.metricLabels.length >= 8) setMetricLabels(parsed.metricLabels.slice(0, 8));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const handleMetricValueEdit = (idx: number, value: string) => {
-    if (!activeClient) return;
-    
-    const numericValue = value.replace(/[^0-9.]/g, '');
-    
-    const updatedClient = { ...activeClient };
-    
-    // Direct update client data based on metric index
-    if (idx === 0) updatedClient.weight = numericValue ? parseFloat(numericValue) : undefined;
-    if (idx === 1) updatedClient.height = numericValue ? parseFloat(numericValue) : undefined;
-    if (idx === 2) updatedClient.age = numericValue ? parseInt(numericValue) : undefined;
-    
-    persistClient(updatedClient);
-  };
 
   const persistClient = (next: Client) => {
     const updatedClients = clients.map((c) => (c.id === next.id ? next : c));
@@ -316,53 +279,98 @@ export function ClientsPage({
 
   const addAssessmentRecord = () => {
     if (!activeClient) return;
-
     try {
+      const w = toNum(assessmentDraft.weight) ?? activeClient.weight ?? 0;
+      const h = toNum(assessmentDraft.height) ?? activeClient.height ?? 0;
+      const age = activeClient.age ?? 25;
+      const isMale = (activeClient.gender || 'male') !== 'female';
+      const bf = toNum(assessmentDraft.bf_pct);
+      const smm_kg = toNum(assessmentDraft.smm_kg);
+      const waist = toNum(assessmentDraft.waist_cm);
+      const hip = toNum(assessmentDraft.hip_cm);
+      const rhr = toNum(assessmentDraft.rhr);
+      const sleep = toNum(assessmentDraft.sleep_hours);
+      const trainAge = toNum(assessmentDraft.training_age_months);
+
+      const fat_kg = (w && bf) ? +((w * bf / 100).toFixed(2)) : undefined;
+      const lean_kg = (w && fat_kg != null) ? +((w - fat_kg).toFixed(2)) : undefined;
+      const smm_pct = (smm_kg && w) ? +((smm_kg / w * 100).toFixed(1)) : undefined;
+      const bmi = (w && h) ? +(w / ((h / 100) ** 2)).toFixed(1) : undefined;
+      const whr = (waist && hip) ? +(waist / hip).toFixed(2) : undefined;
+      const bmr = (w && h) ? Math.round(
+        isMale
+          ? 10 * w + 6.25 * h - 5 * age + 5
+          : 10 * w + 6.25 * h - 5 * age - 161
+      ) : undefined;
+
       const bodyMetrics = {
         ...(activeClient.bodyMetrics || {}),
-        bf_pct: toNum(assessmentDraft.bf_pct),
-        smm_pct: toNum(assessmentDraft.smm_pct),
-        waist_cm: toNum(assessmentDraft.waist_cm),
-        rhr: toNum(assessmentDraft.rhr),
-        sleep_hours: toNum(assessmentDraft.sleep_hours),
-        training_age_months: toNum(assessmentDraft.training_age_months),
+        bf_pct: bf,
+        smm_kg,
+        smm_pct,
+        waist_cm: waist,
+        hip_cm: hip,
+        rhr,
+        sleep_hours: sleep,
+        training_age_months: trainAge,
+        fat_kg,
+        lean_kg,
+        bmi,
+        whr,
+        bmr,
       };
 
       const previewScore = (() => {
         try {
-          return calcBodyAssetScore({ ...activeClient, bodyMetrics } as Client).total;
-        } catch (e) {
-          console.error('[ClientsPage] calcBodyAssetScore in addAssessmentRecord error:', e);
+          return calcBodyAssetScore({
+            ...activeClient,
+            weight: w || activeClient.weight,
+            height: h || activeClient.height,
+            bodyMetrics,
+          } as Client).total;
+        } catch {
           return 0;
         }
       })();
+
       const record = {
         date: new Date().toISOString().slice(0, 10),
-        weight: activeClient.weight,
-        bf_pct: bodyMetrics.bf_pct,
-        smm_pct: bodyMetrics.smm_pct,
-        rhr: bodyMetrics.rhr,
+        weight: w || undefined,
+        height: h || undefined,
+        bf_pct: bf,
+        fat_kg,
+        lean_kg,
+        smm_kg,
+        smm_pct,
+        waist_cm: waist,
+        hip_cm: hip,
+        whr,
+        rhr,
+        bmr,
+        bmi,
+        sleep_hours: sleep,
+        training_age_months: trainAge,
+        notes: assessmentDraft.notes || '',
         score_snapshot: previewScore,
       };
 
       persistClient({
         ...activeClient,
+        ...(w ? { weight: w } : {}),
+        ...(h ? { height: h } : {}),
         bodyMetrics,
         assessments: [...activeAssessments, record],
       } as Client);
 
       setShowAssessmentForm(false);
       setAssessmentDraft({
-        bf_pct: '',
-        smm_pct: '',
-        waist_cm: '',
-        rhr: '',
-        sleep_hours: '',
-        training_age_months: '',
+        weight: '', height: '', bf_pct: '', smm_kg: '',
+        waist_cm: '', hip_cm: '', rhr: '', sleep_hours: '',
+        training_age_months: '', notes: '',
       });
     } catch (e) {
       console.error('[ClientsPage] addAssessmentRecord error:', e);
-      alert('保存体测记录失败，请稍后重试');
+      alert('保存体测记录失败');
     }
   };
 
@@ -463,15 +471,68 @@ export function ClientsPage({
     ? `深蹲 ${liftRatios.squat || '--'}x / 硬拉 ${liftRatios.deadlift || '--'}x`
     : '待录入';
 
+  // 取最新一条体测记录
+  const latestA = [...activeAssessments]
+    .filter(a => a?.date)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] || {};
+
   const metricCards = [
-    { v: activeClient.weight ?? '--', unit: 'kg', tone: '#4F5BDF' },
-    { v: activeClient.height ?? '--', unit: 'cm', tone: '#5E6579' },
-    { v: activeClient.age ?? '--', unit: '岁', tone: '#D14A63' },
-    { v: activeClient.height && activeClient.weight ? (activeClient.weight / ((activeClient.height / 100) * (activeClient.height / 100))).toFixed(1) : '--', unit: '', tone: '#59637B' },
-    { v: activeClient.weight ? Math.max(20, activeClient.weight * 0.45).toFixed(1) : '--', unit: 'kg', tone: '#4D5EDB' },
-    { v: activeClient.weight && activeClient.height && activeClient.age ? Math.round(10 * activeClient.weight + 6.25 * activeClient.height - 5 * activeClient.age + 5) : '--', unit: 'kcal', tone: '#5E6579' },
-    { v: activeBlocks.length, unit: '', tone: '#5662E6' },
-    { v: activeSessions.length, unit: '', tone: '#7A7F90' },
+    {
+      label: '体重 / WEIGHT',
+      v: latestA.weight ?? activeClient.weight ?? '--',
+      unit: 'kg',
+      tone: '#4F5BDF',
+      sub: latestA.date ? `更新 ${latestA.date}` : '待体测',
+    },
+    {
+      label: '体脂率 / BODY FAT',
+      v: latestA.bf_pct != null ? latestA.bf_pct : '--',
+      unit: '%',
+      tone: '#D14A63',
+      sub: latestA.fat_kg != null ? `脂肪 ${latestA.fat_kg}kg` : '待体测',
+    },
+    {
+      label: '脂肪重量 / FAT MASS',
+      v: latestA.fat_kg != null ? latestA.fat_kg : '--',
+      unit: 'kg',
+      tone: '#D97706',
+      sub: latestA.lean_kg != null ? `去脂 ${latestA.lean_kg}kg` : '待体测',
+    },
+    {
+      label: '骨骼肌 / MUSCLE',
+      v: latestA.smm_kg != null ? latestA.smm_kg : '--',
+      unit: 'kg',
+      tone: '#0D9488',
+      sub: latestA.smm_pct != null ? `占比 ${latestA.smm_pct}%` : '待体测',
+    },
+    {
+      label: '腰臀比 / WHR',
+      v: latestA.whr != null ? latestA.whr : '--',
+      unit: '',
+      tone: '#2563EB',
+      sub: latestA.waist_cm != null ? `腰围 ${latestA.waist_cm}cm` : '待体测',
+    },
+    {
+      label: '基础代谢 / BMR',
+      v: latestA.bmr != null ? latestA.bmr : '--',
+      unit: 'kcal',
+      tone: '#5E6579',
+      sub: latestA.bmi != null ? `BMI ${latestA.bmi}` : '待体测',
+    },
+    {
+      label: '训练周期 / BLOCKS',
+      v: activeBlocks.length,
+      unit: '',
+      tone: '#5662E6',
+      sub: '',
+    },
+    {
+      label: '训练课次 / SESSIONS',
+      v: activeSessions.length,
+      unit: '',
+      tone: '#7A7F90',
+      sub: '',
+    },
   ];
 
   const scoreDims = [
@@ -724,65 +785,24 @@ export function ClientsPage({
           <div className="section-cap">• BODY COMPOSITION METRICS（身体成分指标）</div>
           <div className="metrics-grid">
             {metricCards.map((m, idx) => (
-              <div
-                key={`${idx}-${metricLabels[idx]}`}
-                className="metric-card"
-                style={{
-                  minHeight: idx < 4 ? 100 : undefined,
-                  background: idx < 4 ? 'rgba(255,255,255,0.7)' : 'rgba(248,249,252,0.55)',
-                  opacity: idx >= 4 ? 0.85 : 1,
-                }}
-              >
-                <div className="metric-k">{metricLabelMap[metricLabels[idx]] || metricLabels[idx]}</div>
-                <div 
-                  className="metric-v" 
-                  style={{ 
-                    color: m.tone,
-                    fontSize: idx < 4 ? 34 : 24,
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    alignItems: 'baseline'
-                  }}
-                  onDoubleClick={() => {
-                    if (idx < 6) { // 只允许前6个指标编辑数值
-                      setEditingMetric(idx);
-                    }
-                  }}
-                >
-                  {editingMetric === idx ? (
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'flex-end' }}>
-                      <input
-                        className="metric-input"
-                        type="number"
-                        value={m.v}
-                        onChange={(e) => handleMetricValueEdit(idx, e.target.value)}
-                        onBlur={() => setEditingMetric(null)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            setEditingMetric(null);
-                          }
-                        }}
-                        autoFocus
-                        style={{
-                          width: '100px',
-                          fontSize: '30px',
-                          fontWeight: 900,
-                          border: 'none',
-                          background: 'transparent',
-                          color: 'inherit',
-                          outline: 'none',
-                          textAlign: 'right'
-                        }}
-                      />
-                      <span style={{ fontSize: 13, color: '#7B8194', marginLeft: 4 }}>{m.unit}</span>
-                    </div>
-                  ) : (
-                    <>
-                      {m.v}
-                      <span style={{ fontSize: 13, color: '#7B8194', marginLeft: 4 }}>{m.unit}</span>
-                    </>
+              <div key={idx} className="metric-card">
+                <div className="metric-k">{m.label}</div>
+                <div className="metric-v" style={{ color: m.tone }}>
+                  {m.v}
+                  {m.unit && (
+                    <span style={{ fontSize: 13, color: '#7B8194', marginLeft: 4 }}>
+                      {m.unit}
+                    </span>
                   )}
                 </div>
+                {m.sub && (
+                  <div style={{
+                    fontSize: 10, color: '#94a3b8',
+                    marginTop: 4, fontWeight: 500,
+                  }}>
+                    {m.sub}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -840,32 +860,187 @@ export function ClientsPage({
             </div>
 
             {showAssessmentForm && (
-              <div className="assessment-form-grid">
-                <input className="assessment-input" placeholder="体脂率 %" value={assessmentDraft.bf_pct} onChange={(e) => setAssessmentDraft((p) => ({ ...p, bf_pct: e.target.value }))} />
-                <input className="assessment-input" placeholder="骨骼肌率 %" value={assessmentDraft.smm_pct} onChange={(e) => setAssessmentDraft((p) => ({ ...p, smm_pct: e.target.value }))} />
-                <input className="assessment-input" placeholder="腰围 cm" value={assessmentDraft.waist_cm} onChange={(e) => setAssessmentDraft((p) => ({ ...p, waist_cm: e.target.value }))} />
-                <input className="assessment-input" placeholder="静息心率 bpm" value={assessmentDraft.rhr} onChange={(e) => setAssessmentDraft((p) => ({ ...p, rhr: e.target.value }))} />
-                <input className="assessment-input" placeholder="睡眠时长 h/晚" value={assessmentDraft.sleep_hours} onChange={(e) => setAssessmentDraft((p) => ({ ...p, sleep_hours: e.target.value }))} />
-                <input className="assessment-input" placeholder="训练年限（月）" value={assessmentDraft.training_age_months} onChange={(e) => setAssessmentDraft((p) => ({ ...p, training_age_months: e.target.value }))} />
-                <div style={{ gridColumn: '1/-1', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                  <Button type="button" variant="outline" onClick={() => setShowAssessmentForm(false)}>取消</Button>
-                  <Button type="button" onClick={addAssessmentRecord}>保存记录</Button>
+              <div style={{ marginTop: 10 }}>
+
+                {/* 基础数据 */}
+                <div style={{ fontSize: 9, fontWeight: 800, color: '#8a90a6', letterSpacing: '.14em', padding: '6px 0 8px', borderBottom: '1px solid rgba(216,221,236,.4)', marginBottom: 8 }}>
+                  基础数据
+                </div>
+                <div className="assessment-form-grid" style={{ marginBottom: 12 }}>
+                  {[
+                    { key: 'weight', label: '体重 (kg)', placeholder: '如：65.5' },
+                    { key: 'height', label: '身高 (cm)', placeholder: '如：170' },
+                    { key: 'bf_pct', label: '体脂率 (%)', placeholder: '如：18.5' },
+                    { key: 'smm_kg', label: '骨骼肌 (kg)', placeholder: '如：28.5' },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <div style={{ fontSize: 10, color: '#8a90a6', marginBottom: 3 }}>{f.label}</div>
+                      <input
+                        className="assessment-input"
+                        type="number"
+                        placeholder={f.placeholder}
+                        value={(assessmentDraft as any)[f.key]}
+                        onChange={(e) => setAssessmentDraft(p => ({ ...p, [f.key]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* 围度数据 */}
+                <div style={{ fontSize: 9, fontWeight: 800, color: '#8a90a6', letterSpacing: '.14em', padding: '6px 0 8px', borderBottom: '1px solid rgba(216,221,236,.4)', marginBottom: 8 }}>
+                  围度数据
+                </div>
+                <div className="assessment-form-grid" style={{ marginBottom: 12 }}>
+                  {[
+                    { key: 'waist_cm', label: '腰围 (cm)', placeholder: '如：76' },
+                    { key: 'hip_cm', label: '髋围 (cm)', placeholder: '如：92' },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <div style={{ fontSize: 10, color: '#8a90a6', marginBottom: 3 }}>{f.label}</div>
+                      <input
+                        className="assessment-input"
+                        type="number"
+                        placeholder={f.placeholder}
+                        value={(assessmentDraft as any)[f.key]}
+                        onChange={(e) => setAssessmentDraft(p => ({ ...p, [f.key]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* 生理指标 */}
+                <div style={{ fontSize: 9, fontWeight: 800, color: '#8a90a6', letterSpacing: '.14em', padding: '6px 0 8px', borderBottom: '1px solid rgba(216,221,236,.4)', marginBottom: 8 }}>
+                  生理指标
+                </div>
+                <div className="assessment-form-grid" style={{ marginBottom: 12 }}>
+                  {[
+                    { key: 'rhr', label: '静息心率 (bpm)', placeholder: '如：62' },
+                    { key: 'sleep_hours', label: '睡眠时长 (h/晚)', placeholder: '如：7.5' },
+                    { key: 'training_age_months', label: '训练年限 (月)', placeholder: '如：24' },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <div style={{ fontSize: 10, color: '#8a90a6', marginBottom: 3 }}>{f.label}</div>
+                      <input
+                        className="assessment-input"
+                        type="number"
+                        placeholder={f.placeholder}
+                        value={(assessmentDraft as any)[f.key]}
+                        onChange={(e) => setAssessmentDraft(p => ({ ...p, [f.key]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* 备注 */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: '#8a90a6', marginBottom: 3 }}>教练备注（选填）</div>
+                  <input
+                    className="assessment-input"
+                    placeholder="本次体测情况备注..."
+                    value={assessmentDraft.notes}
+                    onChange={(e) => setAssessmentDraft(p => ({ ...p, notes: e.target.value }))}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* 自动计算预览 */}
+                {assessmentDraft.weight && assessmentDraft.bf_pct && (
+                  <div style={{
+                    marginBottom: 12, padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'rgba(93,100,214,.06)',
+                    border: '1px solid rgba(93,100,214,.15)',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 8,
+                  }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 9, color: '#8a90a6', marginBottom: 2 }}>脂肪重量</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#D97706' }}>
+                        {(+assessmentDraft.weight * +assessmentDraft.bf_pct / 100).toFixed(1)} kg
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 9, color: '#8a90a6', marginBottom: 2 }}>去脂体重</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0D9488' }}>
+                        {(+assessmentDraft.weight - +assessmentDraft.weight * +assessmentDraft.bf_pct / 100).toFixed(1)} kg
+                      </div>
+                    </div>
+                    {assessmentDraft.waist_cm && assessmentDraft.hip_cm && (
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 9, color: '#8a90a6', marginBottom: 2 }}>腰臀比</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#2563EB' }}>
+                          {(+assessmentDraft.waist_cm / +assessmentDraft.hip_cm).toFixed(2)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <Button type="button" variant="outline"
+                    onClick={() => setShowAssessmentForm(false)}>
+                    取消
+                  </Button>
+                  <Button type="button" onClick={addAssessmentRecord}>
+                    保存记录
+                  </Button>
                 </div>
               </div>
             )}
 
             <div className="assessment-history-list">
               {activeAssessments.slice().reverse().map((a, idx) => (
-                <div
-                  className="assessment-item-row"
-                  key={`${a.date}-${idx}`}
-                  style={{ borderLeft: '3px solid rgba(93,102,237,.35)', paddingLeft: 10 }}
-                >
-                  <span>{a.date}</span>
-                  <span>体脂 {typeof a.bf_pct === 'number' ? `${a.bf_pct}%` : '--'}</span>
-                  <span>骨骼肌 {typeof a.smm_pct === 'number' ? `${a.smm_pct}%` : '--'}</span>
-                  <span>RHR {typeof a.rhr === 'number' ? `${a.rhr}` : '--'}</span>
-                  <span>评分 {typeof a.score_snapshot === 'number' ? a.score_snapshot : '--'}</span>
+                <div key={`${a.date}-${idx}`} style={{
+                  borderRadius: 12,
+                  border: '1px solid rgba(216,221,236,.6)',
+                  background: 'rgba(255,255,255,.7)',
+                  padding: '10px 14px',
+                  borderLeft: '3px solid rgba(93,102,237,.35)',
+                }}>
+                  {/* 日期行 */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#1f2435' }}>{a.date}</span>
+                    {typeof a.score_snapshot === 'number' && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 700,
+                        padding: '2px 8px', borderRadius: 20,
+                        background: 'rgba(93,102,237,.1)',
+                        color: '#5d66ed',
+                      }}>
+                        评分 {a.score_snapshot}
+                      </span>
+                    )}
+                  </div>
+                  {/* 数据网格 */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    {[
+                      { label: '体重', value: a.weight != null ? `${a.weight}kg` : '--' },
+                      { label: '体脂率', value: a.bf_pct != null ? `${a.bf_pct}%` : '--' },
+                      { label: '脂肪', value: a.fat_kg != null ? `${a.fat_kg}kg` : '--' },
+                      { label: '骨骼肌', value: a.smm_kg != null ? `${a.smm_kg}kg` : '--' },
+                      { label: '腰围', value: a.waist_cm != null ? `${a.waist_cm}cm` : '--' },
+                      { label: '髋围', value: a.hip_cm != null ? `${a.hip_cm}cm` : '--' },
+                      { label: '腰臀比', value: a.whr != null ? a.whr : '--' },
+                      { label: '静息心率', value: a.rhr != null ? `${a.rhr}bpm` : '--' },
+                      { label: 'BMR', value: a.bmr != null ? `${a.bmr}kcal` : '--' },
+                      { label: 'BMI', value: a.bmi != null ? a.bmi : '--' },
+                    ].map(item => (
+                      <div key={item.label} style={{
+                        background: 'rgba(248,249,252,.8)',
+                        borderRadius: 8,
+                        padding: '5px 8px',
+                      }}>
+                        <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600 }}>{item.label}</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2435', marginTop: 1 }}>{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {a.notes && (
+                    <div style={{ marginTop: 8, fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
+                      {a.notes}
+                    </div>
+                  )}
                 </div>
               ))}
               {(!activeClient.assessments || activeClient.assessments.length === 0) && (
@@ -1826,7 +2001,7 @@ export function ClientsPage({
           font-size: 12px;
           color: #4e5873;
           display: grid;
-          grid-template-columns: 1.2fr repeat(4, minmax(0, 1fr));
+          grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
           gap: 10px;
           align-items: center;
         }

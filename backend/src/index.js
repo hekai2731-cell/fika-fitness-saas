@@ -5,6 +5,7 @@ import mongoose, { isValidObjectId } from 'mongoose';
 import { generateSessionPlan } from './sessionPlan.js';
 import { generateWeekPlan, generateFullPlan } from './planning.js';
 import { generateDietPlan } from './dietPlan.js';
+import { generateProgressReport } from './progressReport.js';
 import { connectMongo } from './db/mongoose.js';
 import { Plan } from './models/Plan.js';
 import { Client } from './models/Client.js';
@@ -643,6 +644,16 @@ app.post('/api/diet-plan', async (req, res) => {
     res.json({ ...plan, planId: null });
   } catch (err) {
     res.status(500).json({ error: 'diet plan failed', details: String(err) });
+  }
+});
+
+app.post('/api/progress-report', async (req, res) => {
+  try {
+    const result = await generateProgressReport(req.body);
+    res.json(result);
+  } catch (e) {
+    console.error('[progressReport]', e);
+    res.status(500).json({ error: String(e?.message || '生成失败') });
   }
 });
 

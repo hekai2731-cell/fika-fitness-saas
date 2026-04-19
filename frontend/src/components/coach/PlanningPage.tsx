@@ -675,6 +675,7 @@ export function PlanningPage({
   const [error, setError] = useState<string | null>(null);
   const [, setWeekPickerOpen] = useState(false);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
+  const [editingDateDayId, setEditingDateDayId] = useState<string | null>(null);
   const [deleteMenu, setDeleteMenu] = useState<LongPressDeleteMenu | null>(null);
   const pressTimerRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -1753,6 +1754,10 @@ export function PlanningPage({
         WebkitBackdropFilter: 'none',
         boxShadow: 'none',
       }}
+      onClick={() => {
+        setEditingDateDayId(null);
+        setDayPickerOpen(false);
+      }}
     >
       <div className="phase-strip" style={{ display: 'none' }}>
         <div className="phase-top-row">
@@ -2492,36 +2497,231 @@ export function PlanningPage({
                   const isSelected = d.id === selectedDayId;
                   const hasPlan = Array.isArray((d as any).modules) && (d as any).modules.length > 0;
                   return (
-                    <button
-                      key={d.id}
-                      onClick={() => setSelectedDayId(d.id)}
-                      style={{
-                        padding: '5px 12px', borderRadius: 8, flexShrink: 0,
-                        border: isSelected ? '1.5px solid var(--p)' : '1px solid var(--s200)',
-                        background: isSelected ? 'var(--p2)' : 'rgba(255,255,255,0.5)',
-                        color: isSelected ? 'var(--p)' : 'var(--s600)',
-                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                        position: 'relative',
-                        transition: 'all .12s',
-                      }}
-                    >
-                      {d.day}
-                      {hasPlan && (
-                        <span style={{ position: 'absolute', top: 2, right: 2, width: 5, height: 5, borderRadius: '50%', background: '#10b981' }} />
+                    <div key={d.id} style={{ position: 'relative', flexShrink: 0 }}>
+                      <button
+                        onClick={() => setSelectedDayId(d.id)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setEditingDateDayId(d.id);
+                        }}
+                        onMouseDown={(() => {
+                          let timer: number;
+                          return (e: React.MouseEvent) => {
+                            timer = window.setTimeout(() => {
+                              setEditingDateDayId(d.id);
+                            }, 600);
+                            (e.currentTarget as any)._longPressTimer = timer;
+                          };
+                        })()}
+                        onMouseUp={(e) => {
+                          clearTimeout((e.currentTarget as any)._longPressTimer);
+                        }}
+                        onMouseLeave={(e) => {
+                          clearTimeout((e.currentTarget as any)._longPressTimer);
+                        }}
+                        style={{
+                          padding: '5px 12px', borderRadius: 8, flexShrink: 0,
+                          border: isSelected ? '1.5px solid var(--p)' : '1px solid var(--s200)',
+                          background: isSelected ? 'var(--p2)' : 'rgba(255,255,255,0.5)',
+                          color: isSelected ? 'var(--p)' : 'var(--s600)',
+                          fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                          position: 'relative',
+                          transition: 'all .12s',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 1,
+                        }}
+                      >
+                        <span>{d.day}</span>
+                        {(d as any).date && (
+                          <span style={{ fontSize: 9, opacity: 0.6, fontWeight: 400 }}>
+                            {(d as any).date}
+                          </span>
+                        )}
+                        {hasPlan && (
+                          <span style={{
+                            position: 'absolute', top: 2, right: 2,
+                            width: 5, height: 5, borderRadius: '50%',
+                            background: '#10b981',
+                          }} />
+                        )}
+                      </button>
+
+                      {/* 日期选择浮层 */}
+                      {editingDateDayId === d.id && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            marginTop: 4,
+                            zIndex: 100,
+                            background: '#fff',
+                            border: '1px solid var(--s200)',
+                            borderRadius: 10,
+                            padding: '10px 12px',
+                            boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+                            minWidth: 180,
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div style={{
+                            fontSize: 10, fontWeight: 700, color: 'var(--s500)',
+                            letterSpacing: '.08em', marginBottom: 6,
+                          }}>
+                            {d.day} · 设置日期
+                          </div>
+                          <input
+                            type="date"
+                            defaultValue={(d as any).date || ''}
+                            style={{
+                              width: '100%',
+                              padding: '5px 8px',
+                              borderRadius: 6,
+                              border: '1px solid var(--s200)',
+                              fontSize: 12,
+                              color: 'var(--s800)',
+                              outline: 'none',
+                              marginBottom: 8,
+                            }}
+                            onChange={(e) => {
+                              if (!client || !selectedBlock || !selectedWeek) return;
+                              const newDate = e.target.value;
+                              const updatedClient = {
+                                ...client,
+                                blocks: (client.blocks || []).map(b =>
+                                  b.id !== selectedBlock.id ? b : {
+                                    ...b,
+                                    training_weeks: (b.training_weeks || []).map(w =>
+                                      w.id !== selectedWeek.id ? w : {
+                                        ...w,
+                                        days: (w.days || []).map(day =>
+                                          day.id !== d.id ? day : {
+                                            ...day,
+                                            date: newDate,
+                                          }
+                                        ),
+                                      }
+                                    ),
+                                  }
+                                ),
+                              };
+                              persistClient(updatedClient as Client);
+                            }}
+                          />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!client || !selectedBlock || !selectedWeek) return;
+                                const updatedClient = {
+                                  ...client,
+                                  blocks: (client.blocks || []).map(b =>
+                                    b.id !== selectedBlock.id ? b : {
+                                      ...b,
+                                      training_weeks: (b.training_weeks || []).map(w =>
+                                        w.id !== selectedWeek.id ? w : {
+                                          ...w,
+                                          days: (w.days || []).map(day =>
+                                            day.id !== d.id ? day : { ...day, date: undefined }
+                                          ),
+                                        }
+                                      ),
+                                    }
+                                  ),
+                                };
+                                persistClient(updatedClient as Client);
+                                setEditingDateDayId(null);
+                              }}
+                              style={{
+                                flex: 1, padding: '4px 0', borderRadius: 6,
+                                border: '1px solid var(--s200)',
+                                background: 'transparent',
+                                color: 'var(--s500)', fontSize: 11,
+                                cursor: 'pointer',
+                              }}
+                            >清除</button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingDateDayId(null)}
+                              style={{
+                                flex: 1, padding: '4px 0', borderRadius: 6,
+                                border: 'none',
+                                background: 'var(--p)',
+                                color: '#fff', fontSize: 11,
+                                fontWeight: 600, cursor: 'pointer',
+                              }}
+                            >完成</button>
+                          </div>
+                        </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
-                <button
-                  onClick={() => setDayPickerOpen(v => !v)}
-                  style={{
-                    padding: '5px 10px', borderRadius: 8, flexShrink: 0,
-                    border: '1px dashed var(--s200)',
-                    background: 'transparent',
-                    color: 'var(--s400)', fontSize: 12,
-                    cursor: 'pointer',
-                  }}
-                >+ 新建 Day</button>
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDayPickerOpen(v => !v); }}
+                    style={{
+                      padding: '5px 10px', borderRadius: 8, flexShrink: 0,
+                      border: '1px dashed var(--s200)',
+                      background: 'transparent',
+                      color: 'var(--s400)', fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >+ 新建 Day</button>
+
+                  {dayPickerOpen && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        right: 0,
+                        marginTop: 4,
+                        zIndex: 50,
+                        background: '#fff',
+                        border: '1px solid var(--s200)',
+                        borderRadius: 10,
+                        padding: 8,
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(4, 1fr)',
+                        gap: 4,
+                        boxShadow: '0 4px 16px rgba(0,0,0,.1)',
+                        minWidth: 200,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {WEEKDAY_OPTIONS.map((dayLabel) => {
+                        const occupied = (selectedWeek?.days || []).some(d => d.day === dayLabel);
+                        return (
+                          <button
+                            key={dayLabel}
+                            type="button"
+                            disabled={occupied}
+                            onClick={() => {
+                              addDay(dayLabel);
+                              setDayPickerOpen(false);
+                            }}
+                            style={{
+                              padding: '5px 6px',
+                              borderRadius: 6,
+                              border: '1px solid',
+                              borderColor: occupied ? 'var(--s200)' : 'var(--p3)',
+                              background: occupied ? 'var(--s100)' : 'var(--p2)',
+                              color: occupied ? 'var(--s400)' : 'var(--p)',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: occupied ? 'not-allowed' : 'pointer',
+                              opacity: occupied ? 0.5 : 1,
+                            }}
+                          >
+                            {dayLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>

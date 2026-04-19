@@ -680,56 +680,75 @@ function TodayTab({
 
 // ── 进步 Tab ──────────────────────────────────────────────────
 function ProgressTab({ client }: { client: Client }) {
-  const wData = client.weeklyData || [];
   const sessions = client.sessions || [];
-  const latest = wData.slice(-1)[0] || {};
-  const prev = wData.slice(-2, -1)[0] || {};
-  const weightDelta = latest.weight && prev.weight ? +(latest.weight - prev.weight).toFixed(1) : null;
-  const bfDelta = latest.bf && prev.bf ? +(latest.bf - prev.bf).toFixed(1) : null;
+
+  // 从 assessments 读取体测历史（按日期升序）
+  const assessments = Array.isArray((client as any).assessments)
+    ? [...(client as any).assessments]
+        .filter((a: any) => a?.date)
+        .sort((a: any, b: any) =>
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        )
+    : [];
+
+  const latestA = assessments[assessments.length - 1] || {};
+  const prevA = assessments[assessments.length - 2] || {};
+
+  // 各项变化值
+  const weightDelta = (latestA.weight && prevA.weight)
+    ? +(latestA.weight - prevA.weight).toFixed(1) : null;
+  const bfDelta = (latestA.bf_pct != null && prevA.bf_pct != null)
+    ? +(latestA.bf_pct - prevA.bf_pct).toFixed(1) : null;
+  const fatDelta = (latestA.fat_kg != null && prevA.fat_kg != null)
+    ? +(latestA.fat_kg - prevA.fat_kg).toFixed(1) : null;
+  const smmDelta = (latestA.smm_kg != null && prevA.smm_kg != null)
+    ? +(latestA.smm_kg - prevA.smm_kg).toFixed(1) : null;
+  const whrDelta = (latestA.whr != null && prevA.whr != null)
+    ? +(latestA.whr - prevA.whr).toFixed(2) : null;
+
+  // RPE趋势
+  const recentRpes = sessions.slice(-6)
+    .map((s: any) => s.rpe || 0).filter(Boolean);
+  const avgRpe = recentRpes.length
+    ? +(recentRpes.reduce((a: number, b: number) => a + b, 0) / recentRpes.length).toFixed(1)
+    : null;
+  const rpeTrend = recentRpes.length >= 2
+    ? recentRpes[recentRpes.length - 1] - recentRpes[0] : 0;
+
+  // 训练阶段
+  const blocks = (client as any).published_blocks
+    || (client as any).blocks || [];
+  const currentBlock = blocks[blocks.length - 1];
+
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
-
-  // 计算平均RPE趋势
-  const recentRpes = sessions.slice(-6).map((s: any) => s.rpe || 0).filter(Boolean);
-  const avgRpe = recentRpes.length ? +(recentRpes.reduce((a: number, b: number) => a + b, 0) / recentRpes.length).toFixed(1) : null;
-  const rpeTrend = recentRpes.length >= 2
-    ? recentRpes[recentRpes.length - 1] - recentRpes[0]
-    : 0;
-
-  // 训练阶段信息
-  const blocks = (client as any).blocks || [];
-  const currentBlock = blocks[blocks.length - 1];
 
   // 生成AI进度报告
   const generateAiReport = async () => {
     setLoadingReport(true);
     setAiReport(null);
     try {
-      const prompt = `你是FiKA Fitness的教练助手。请根据以下客户训练数据，用简洁温暖的中文写一段个性化进度报告（150字以内），告诉客户：这段时间练了什么、哪里进步了、下一步的重点是什么。语气要鼓励但专业，像教练在课后跟客户说话一样自然。
+      const isProduction = import.meta.env.PROD;
+      const apiBase = isProduction ? '' : ((import.meta as any).env?.VITE_API_BASE_URL || '');
+      const apiUrl = (path: string) => (apiBase ? String(apiBase).replace(/\/$/, '') + path : path);
 
-训练方式：${membershipGroupLabel(client.membershipLevel)}（${client.membershipLevel === 'elite' ? 'Elite至尊会员' : client.membershipLevel === 'professional' ? 'Professional专业会员' : client.membershipLevel === 'advanced' ? 'Advanced进阶会员' : 'Standard基础会员'}）
-总训练节数：${sessions.length}
-当前训练阶段：${currentBlock?.title || '训练中'}
-平均RPE：${avgRpe || '暂无数据'}
-近期RPE趋势：${rpeTrend > 1 ? '疲劳积累' : rpeTrend < -1 ? '恢复良好' : '相对稳定'}
-体重变化：${weightDelta !== null ? `${weightDelta > 0 ? '+' : ''}${weightDelta}kg` : '暂无数据'}
-体脂变化：${bfDelta !== null ? `${bfDelta > 0 ? '+' : ''}${bfDelta}%` : '暂无数据'}
-训练目标：${(client as any).fitness_goal || '综合体能提升'}
-
-只输出报告正文，不要标题，不要前缀。`;
-
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      const resp = await fetch(apiUrl('/api/progress-report'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 300,
-          messages: [{ role: 'user', content: prompt }],
+          membershipLevel: client.membershipLevel,
+          totalSessions: sessions.length,
+          blockTitle: currentBlock?.title || '',
+          avgRpe,
+          rpeTrend,
+          weightDelta,
+          bfDelta,
+          fitnessGoal: (client as any).fitness_goal || client.goal || '',
         }),
       });
       const json = await resp.json();
-      const text = json?.content?.[0]?.text || '';
-      setAiReport(text || '报告生成中，请稍后重试。');
+      if (!resp.ok || json.error) throw new Error(json.error || '生成失败');
+      setAiReport(json.report || '报告生成中，请稍后重试。');
     } catch {
       setAiReport('网络错误，请稍后重试。');
     } finally {
@@ -739,66 +758,229 @@ function ProgressTab({ client }: { client: Client }) {
 
   return (
     <div>
-      <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-.01em', marginBottom: 4 }}>我的进步</div>
-      <div style={{ fontSize: 11, color: 'var(--s400)', marginBottom: 16, letterSpacing: '.05em' }}>
-        {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' })} · 进度报告
+      <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-.01em', marginBottom: 4 }}>
+        我的进步
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--s400)', marginBottom: 14, letterSpacing: '.05em' }}>
+        {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' })}
+        {assessments.length > 0 && ` · 共 ${assessments.length} 次体测`}
       </div>
 
-      {/* 四格数据 */}
-      <div className="stu-stat-grid">
-        <div className="card-sm stu-stat">
-          <div className="lbl">体重</div>
-          <div className="val">
-            {latest.weight || client.weight || '—'}
-            <span style={{ fontSize: 13, color: 'var(--s400)' }}> kg</span>
-          </div>
-          {weightDelta !== null && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-              <span style={{ fontSize: 16 }}>{weightDelta < 0 ? '↓' : '↑'}</span>
-              <span className="delta" style={{
-                color: weightDelta < 0 ? 'var(--g)' : 'var(--r)',
-                fontSize: 13, fontWeight: 700,
+      {/* ── 六格核心数据 ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+        {[
+          {
+            label: '体重', value: latestA.weight ?? client.weight,
+            unit: 'kg', delta: weightDelta,
+            goodDown: true, color: 'var(--p)',
+            bg: 'rgba(108,99,255,.06)',
+          },
+          {
+            label: '体脂率', value: latestA.bf_pct,
+            unit: '%', delta: bfDelta,
+            goodDown: true, color: '#D14A63',
+            bg: 'rgba(209,74,99,.06)',
+          },
+          {
+            label: '脂肪重量', value: latestA.fat_kg,
+            unit: 'kg', delta: fatDelta,
+            goodDown: true, color: '#D97706',
+            bg: 'rgba(217,119,6,.06)',
+          },
+          {
+            label: '骨骼肌', value: latestA.smm_kg,
+            unit: 'kg', delta: smmDelta,
+            goodDown: false, color: '#0D9488',
+            bg: 'rgba(13,148,136,.06)',
+          },
+          {
+            label: '腰臀比', value: latestA.whr,
+            unit: '', delta: whrDelta,
+            goodDown: true, color: '#2563EB',
+            bg: 'rgba(37,99,235,.06)',
+          },
+          {
+            label: '总课次', value: sessions.length,
+            unit: '节', delta: null,
+            goodDown: false, color: 'var(--p)',
+            bg: 'rgba(108,99,255,.06)',
+          },
+        ].map((item) => (
+          <div key={item.label} className="card-sm" style={{
+            padding: '12px 14px',
+            background: item.bg,
+            border: `1px solid ${item.color}20`,
+          }}>
+            <div style={{
+              fontSize: 10, fontWeight: 700,
+              color: 'var(--s500)', letterSpacing: '.08em',
+              marginBottom: 4,
+            }}>
+              {item.label}
+            </div>
+            <div style={{
+              fontSize: 26, fontWeight: 800,
+              color: item.value != null ? item.color : 'var(--s300)',
+              lineHeight: 1, letterSpacing: '-.02em',
+            }}>
+              {item.value ?? '—'}
+              {item.value != null && item.unit && (
+                <span style={{ fontSize: 12, color: 'var(--s400)', marginLeft: 3 }}>
+                  {item.unit}
+                </span>
+              )}
+            </div>
+            {item.delta !== null && (
+              <div style={{
+                fontSize: 11, fontWeight: 700, marginTop: 4,
+                color: (item.goodDown ? item.delta! < 0 : item.delta! > 0)
+                  ? 'var(--g)' : 'var(--r)',
               }}>
-                {weightDelta > 0 ? '+' : ''}{weightDelta} kg
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="card-sm stu-stat">
-          <div className="lbl">体脂率</div>
-          <div className="val">
-            {latest.bf || '—'}
-            <span style={{ fontSize: 13, color: 'var(--s400)' }}> %</span>
+                {item.delta! > 0 ? '↑' : '↓'} {Math.abs(item.delta!)}
+                {item.unit} 较上次
+              </div>
+            )}
+            {item.delta === null && item.value == null && (
+              <div style={{ fontSize: 10, color: 'var(--s300)', marginTop: 4 }}>
+                待体测
+              </div>
+            )}
           </div>
-          {bfDelta !== null && (
-            <div className="delta" style={{ color: bfDelta < 0 ? 'var(--g)' : 'var(--r)' }}>
-              {bfDelta > 0 ? '+' : ''}{bfDelta}%
-            </div>
-          )}
-        </div>
-        <div className="card-sm stu-stat">
-          <div className="lbl">总课次</div>
-          <div className="val">{sessions.length}</div>
-        </div>
-        <div className="card-sm stu-stat">
-          <div className="lbl">平均RPE</div>
-          <div className="val" style={{ color: avgRpe && avgRpe >= 8 ? 'var(--r)' : avgRpe && avgRpe <= 4 ? 'var(--g)' : 'var(--p)' }}>
-            {avgRpe || '—'}
-          </div>
-          {rpeTrend !== 0 && avgRpe && (
-            <div className="delta" style={{ color: rpeTrend > 0 ? 'var(--r)' : 'var(--g)' }}>
-              {rpeTrend > 0 ? '↑ 累积' : '↓ 恢复'}
-            </div>
-          )}
-        </div>
+        ))}
       </div>
 
-      {/* 训练阶段进度条 */}
-      {currentBlock && (
-        <div className="card-sm" style={{ padding: 14, marginTop: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+      {/* ── 六条进步曲线 ── */}
+      {assessments.length >= 2 ? (
+        <div className="card-sm" style={{ padding: 16, marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
+            身体数据趋势
+          </div>
+
+          {[
+            { key: 'weight', label: '体重', unit: 'kg', color: '#6C63FF', current: latestA.weight },
+            { key: 'bf_pct', label: '体脂率', unit: '%', color: '#D14A63', current: latestA.bf_pct },
+            { key: 'fat_kg', label: '脂肪重量', unit: 'kg', color: '#D97706', current: latestA.fat_kg },
+            { key: 'smm_kg', label: '骨骼肌含量', unit: 'kg', color: '#0D9488', current: latestA.smm_kg },
+            { key: 'whr', label: '腰臀比', unit: '', color: '#2563EB', current: latestA.whr },
+            { key: 'score_snapshot', label: '身体资产评分', unit: '分', color: '#7C3AED', current: latestA.score_snapshot },
+          ].map((metric) => {
+            const pts = assessments
+              .map((a: any) => ({ v: a[metric.key], date: a.date }))
+              .filter((p: any) => p.v != null && typeof p.v === 'number');
+
+            if (pts.length < 2) return null;
+
+            const vals = pts.map((p: any) => p.v as number);
+            const minV = Math.min(...vals);
+            const maxV = Math.max(...vals);
+            const range = maxV - minV || 1;
+            const W = 280, H = 44;
+            const x = (i: number) => (i / (pts.length - 1)) * (W - 12) + 6;
+            const y = (v: number) => H - ((v - minV) / range) * (H - 10) - 5;
+            const pathD = pts.map((p: any, i: number) =>
+              `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(p.v).toFixed(1)}`
+            ).join(' ');
+            const gradId = `g_${metric.key}`;
+
+            const diff = +(vals[vals.length - 1] - vals[0]).toFixed(2);
+            const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
+
+            return (
+              <div key={metric.key} style={{
+                marginBottom: 16,
+                paddingBottom: 16,
+                borderBottom: '1px solid var(--s100)',
+              }}>
+                <div style={{
+                  display: 'flex', alignItems: 'baseline',
+                  justifyContent: 'space-between', marginBottom: 6,
+                }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--s600)' }}>
+                    {metric.label}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <span style={{ fontSize: 18, fontWeight: 800, color: metric.color }}>
+                      {metric.current ?? vals[vals.length - 1]}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--s400)' }}>{metric.unit}</span>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700,
+                      color: diff === 0 ? 'var(--s400)' : diff > 0 ? 'var(--r)' : 'var(--g)',
+                    }}>
+                      {diffStr}{metric.unit}
+                    </span>
+                  </div>
+                </div>
+
+                <svg viewBox={`0 0 ${W} ${H}`}
+                  style={{ width: '100%', height: H, overflow: 'visible' }}>
+                  <defs>
+                    <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={metric.color} stopOpacity="0.18" />
+                      <stop offset="100%" stopColor={metric.color} stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d={`${pathD} L ${x(pts.length-1).toFixed(1)} ${H} L 6 ${H} Z`}
+                    fill={`url(#${gradId})`}
+                  />
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={metric.color}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  {pts.map((p: any, i: number) => (
+                    <circle key={i}
+                      cx={x(i)} cy={y(p.v)} r="3"
+                      fill="#fff" stroke={metric.color} strokeWidth="2"
+                    />
+                  ))}
+                </svg>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                  <span style={{ fontSize: 9, color: 'var(--s400)' }}>
+                    {pts[0].date?.slice(5)}
+                  </span>
+                  <span style={{ fontSize: 9, color: 'var(--s400)' }}>
+                    {pts[pts.length - 1].date?.slice(5)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="card-sm" style={{
+          padding: 20, marginBottom: 10,
+          textAlign: 'center', color: 'var(--s400)',
+          lineHeight: 1.8,
+        }}>
+          <div style={{ fontSize: 24, marginBottom: 6 }}>📊</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>
+            {assessments.length === 0 ? '暂无体测记录' : '再完成 1 次体测'}
+          </div>
+          <div style={{ fontSize: 11, marginTop: 4 }}>
+            {assessments.length === 0
+              ? '教练完成初次体测建档后将显示进步曲线'
+              : '两次体测数据后将自动生成进步曲线'}
+          </div>
+        </div>
+      )}
+
+      {/* ── 训练阶段进度条 ── */}
+      {blocks.length > 0 && (
+        <div className="card-sm" style={{ padding: 14, marginBottom: 10 }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between',
+            alignItems: 'center', marginBottom: 10,
+          }}>
             <div style={{ fontSize: 13, fontWeight: 600 }}>训练阶段</div>
-            <span style={{ fontSize: 11, color: 'var(--p)', fontWeight: 600 }}>{currentBlock.title || '当前阶段'}</span>
+            <span style={{ fontSize: 11, color: 'var(--p)', fontWeight: 600 }}>
+              {currentBlock?.title || '当前阶段'}
+            </span>
           </div>
           <div style={{ display: 'flex', gap: 0 }}>
             {blocks.map((b: any, i: number) => {
@@ -806,19 +988,21 @@ function ProgressTab({ client }: { client: Client }) {
               const isDone = i < blocks.length - 1;
               return (
                 <div key={i} style={{
-                  flex: 1,
-                  textAlign: 'center',
-                  padding: '6px 4px',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  borderRadius: i === 0 ? '6px 0 0 6px' : i === blocks.length - 1 ? '0 6px 6px 0' : 0,
+                  flex: 1, textAlign: 'center',
+                  padding: '6px 4px', fontSize: 10, fontWeight: 600,
+                  borderRadius: i === 0 ? '6px 0 0 6px'
+                    : i === blocks.length - 1 ? '0 6px 6px 0' : 0,
                   border: '1px solid',
-                  borderColor: isActive ? 'var(--p)' : isDone ? 'var(--g)' : 'var(--s200)',
-                  background: isActive ? 'var(--p2)' : isDone ? 'var(--g2)' : 'var(--s50)',
-                  color: isActive ? 'var(--p)' : isDone ? '#065f46' : 'var(--s400)',
+                  borderColor: isActive ? 'var(--p)'
+                    : isDone ? 'var(--g)' : 'var(--s200)',
+                  background: isActive ? 'var(--p2)'
+                    : isDone ? 'var(--g2)' : 'var(--s50)',
+                  color: isActive ? 'var(--p)'
+                    : isDone ? '#065f46' : 'var(--s400)',
                   borderLeft: i > 0 ? 'none' : undefined,
                 }}>
-                  {isDone ? '✓ ' : isActive ? '▶ ' : ''}{b.title?.replace('期', '') || `B${i+1}`}
+                  {isDone ? '✓ ' : isActive ? '▶ ' : ''}
+                  {b.title?.replace('期', '') || `B${i+1}`}
                 </div>
               );
             })}
@@ -826,12 +1010,17 @@ function ProgressTab({ client }: { client: Client }) {
         </div>
       )}
 
-      {/* RPE 趋势图 */}
+      {/* ── RPE趋势柱状图 ── */}
       {sessions.length > 0 && (
-        <div className="card-sm" style={{ padding: 16, marginTop: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div className="card-sm" style={{ padding: 16, marginBottom: 10 }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between',
+            alignItems: 'center', marginBottom: 10,
+          }}>
             <div style={{ fontSize: 13, fontWeight: 600 }}>训练强度趋势</div>
-            <div style={{ fontSize: 10, color: 'var(--s400)' }}>近 {Math.min(sessions.length, 10)} 节课</div>
+            <div style={{ fontSize: 10, color: 'var(--s400)' }}>
+              近 {Math.min(sessions.length, 10)} 节课
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 60 }}>
             {sessions.slice(-10).map((s: any, i: number) => {
@@ -839,15 +1028,26 @@ function ProgressTab({ client }: { client: Client }) {
               const h = Math.round((rpe / 10) * 50) + 4;
               const color = rpe >= 8 ? 'var(--r)' : rpe <= 4 ? 'var(--g)' : 'var(--p)';
               return (
-                <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                  <div style={{ width: '100%', background: color, borderRadius: '3px 3px 0 0', height: h, opacity: 0.75 }} />
+                <div key={i} style={{
+                  flex: 1, display: 'flex',
+                  flexDirection: 'column', alignItems: 'center', gap: 2,
+                }}>
+                  <div style={{
+                    width: '100%', background: color,
+                    borderRadius: '3px 3px 0 0',
+                    height: h, opacity: 0.75,
+                  }} />
                   <div style={{ fontSize: 8, color: 'var(--s400)' }}>{rpe}</div>
                 </div>
               );
             })}
           </div>
           <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-            {[['var(--g)', 'RPE ≤4 轻松'], ['var(--p)', 'RPE 5-7 适中'], ['var(--r)', 'RPE ≥8 高强度']].map(([c, l]) => (
+            {[
+              ['var(--g)', 'RPE ≤4 轻松'],
+              ['var(--p)', 'RPE 5-7 适中'],
+              ['var(--r)', 'RPE ≥8 高强度'],
+            ].map(([c, l]) => (
               <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
                 <span style={{ fontSize: 9, color: 'var(--s400)' }}>{l}</span>
@@ -857,78 +1057,63 @@ function ProgressTab({ client }: { client: Client }) {
         </div>
       )}
 
-      {/* AI 进度报告 */}
-      <div className="card-sm" style={{ padding: 16, marginTop: 10, border: '1px solid var(--p3)', background: 'var(--p2)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: aiReport ? 12 : 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--p)' }}>本阶段进展报告</div>
+      {/* ── AI进度报告 ── */}
+      <div className="card-sm" style={{
+        padding: 16, marginTop: 10,
+        border: '1px solid var(--p3)',
+        background: 'var(--p2)',
+      }}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between',
+          alignItems: 'center', marginBottom: aiReport ? 12 : 0,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--p)' }}>
+            本阶段进展报告
+          </div>
           <button
+            type="button"
             onClick={generateAiReport}
             disabled={loadingReport || sessions.length === 0}
             style={{
-              padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: loadingReport || sessions.length === 0 ? 'not-allowed' : 'pointer',
-              border: '1px solid var(--p3)', background: loadingReport ? 'var(--p3)' : 'var(--p)', color: '#fff',
-              transition: 'all .2s',
+              padding: '4px 12px', borderRadius: 6,
+              fontSize: 11, fontWeight: 600,
+              cursor: loadingReport || sessions.length === 0
+                ? 'not-allowed' : 'pointer',
+              border: '1px solid var(--p3)',
+              background: loadingReport ? 'var(--p3)' : 'var(--p)',
+              color: '#fff',
+              opacity: sessions.length === 0 ? 0.5 : 1,
             }}
           >
             {loadingReport ? '生成中...' : aiReport ? '重新生成' : '✨ AI 生成报告'}
           </button>
         </div>
         {aiReport && (
-          <div style={{ fontSize: 13, color: 'var(--s700)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{aiReport}</div>
+          <div style={{
+            fontSize: 13, color: 'var(--s700)',
+            lineHeight: 1.7, whiteSpace: 'pre-wrap',
+          }}>
+            {aiReport}
+          </div>
         )}
         {!aiReport && !loadingReport && sessions.length > 0 && (
-          <div style={{ fontSize: 12, color: 'var(--s400)', marginTop: 8 }}>点击右上角按钮，AI 为你生成个性化进展总结</div>
-        )}
-        {sessions.length === 0 && (
-          <div style={{ fontSize: 12, color: 'var(--s400)', marginTop: 8 }}>完成第一节课后即可生成报告</div>
+          <div style={{ fontSize: 11, color: 'var(--s400)', marginTop: 6 }}>
+            点击生成个性化训练进度分析
+          </div>
         )}
         {loadingReport && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-            <div className="dots"><span /><span /><span /></div>
-            <span style={{ fontSize: 12, color: 'var(--s400)' }}>正在分析你的训练数据...</span>
+          <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+            <div className="dots">
+              <span /><span /><span />
+            </div>
+          </div>
+        )}
+        {sessions.length === 0 && (
+          <div style={{ fontSize: 11, color: 'var(--s400)', marginTop: 6 }}>
+            完成第一次训练后可生成报告
           </div>
         )}
       </div>
-
-      {sessions.length === 0 && (
-        <div className="card-sm" style={{ padding: 20, marginTop: 10, textAlign: 'center', color: 'var(--s400)', fontSize: 12 }}>
-          数据积累中，继续打卡 💪
-        </div>
-      )}
-
-      {/* 档位能力说明 */}
-      {isPro(client.membershipLevel) ? (
-        <div className="card-sm" style={{ padding: 14, marginTop: 10, background: 'var(--p2)', border: '1px solid var(--p3)' }}>
-          <div className="lbl" style={{ color: 'var(--p)', marginBottom: 6 }}>动力链训练 · 专项指标</div>
-          {[
-            ['训练方向', '力线整合 · 运动模式重建'],
-            ['热身逻辑', '抑制 → 激活 → 整合'],
-            ['主训格式', '超级组 + 功能链'],
-            ['收尾验收', '神经重置呼吸 + 腰窝触诊'],
-            ['当前阶段', (client as any).trainingPhase === 'neural_reset' ? '神经重置期' : (client as any).trainingPhase === 'activation' ? '激活建立期' : (client as any).trainingPhase === 'loading' ? '力量加载期' : (client as any).trainingPhase === 'integration' ? '整合期' : '进行中'],
-          ].map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--p3)', fontSize: 11 }}>
-              <span style={{ color: 'var(--s600)' }}>{k}</span>
-              <span style={{ fontWeight: 600, color: 'var(--p)' }}>{v}</span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="card-sm" style={{ padding: 14, marginTop: 10, background: 'var(--s50)', border: '1px solid var(--s200)' }}>
-          <div className="lbl" style={{ color: 'var(--s600)', marginBottom: 6 }}>传统分化训练 · 训练说明</div>
-          {[
-            ['训练方式', '肌群分化 · 感知优先'],
-            ['动作节奏', '3030 离心控制'],
-            ['主训格式', '独立单体 + 超级组'],
-            ['核心目标', '建立肌肉感知与动作模式'],
-          ].map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--s200)', fontSize: 11 }}>
-              <span style={{ color: 'var(--s500)' }}>{k}</span>
-              <span style={{ fontWeight: 600, color: 'var(--s700)' }}>{v}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -1333,80 +1518,139 @@ function DietSection({ client }: { client: Client }) {
     );
   }
 
-  const nutrientRows = [
-    { 
-      name: '总热量 / Total Calories', 
-      target: `${dietPlan.target.calories} kcal`, 
-      range: `${Math.round(dietPlan.target.calories * 0.94)} - ${Math.round(dietPlan.target.calories * 1.06)}`, 
-      status: '优化 / OPTIMIZED', 
-      color: '#5d64d6' 
-    },
-    { 
-      name: '蛋白质 / Protein', 
-      target: `${dietPlan.target.protein}g (25%)`, 
-      range: `${Math.round(dietPlan.target.protein * 0.9)}g - ${Math.round(dietPlan.target.protein * 1.1)}g`, 
-      status: '充足 / HIGH', 
-      color: '#64748b' 
-    },
-    { 
-      name: '碳水化合物 / Carbohydrates', 
-      target: `${dietPlan.target.carbs}g (50%)`, 
-      range: `${Math.round(dietPlan.target.carbs * 0.95)}g - ${Math.round(dietPlan.target.carbs * 1.08)}g`, 
-      status: '优化 / OPTIMIZED', 
-      color: '#5d64d6' 
-    },
-    { 
-      name: '脂肪 / Fats', 
-      target: `${dietPlan.target.fat}g (25%)`, 
-      range: `${Math.round(dietPlan.target.fat * 0.9)}g - ${Math.round(dietPlan.target.fat * 1.2)}g`, 
-      status: '均衡 / BALANCED', 
-      color: '#a16207' 
-    },
-  ];
-
   return (
     <div className="card-sm" style={{ padding: 16, marginBottom: 10 }}>
-      <div className="lbl" style={{ marginBottom: 10 }}>阶段饮食 / Phase Nutrition</div>
-      
-      {/* 饮食计划标题 */}
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2438' }}>{dietPlan.title}</div>
-        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{dietPlan.period}</div>
-        {dietPlan.notes && (
-          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, fontStyle: 'italic' }}>{dietPlan.notes}</div>
-        )}
+
+      {/* 标题行 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#1f2438', letterSpacing: '.04em' }}>
+            {dietPlan.title}
+          </div>
+          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2, letterSpacing: '.06em' }}>
+            阶段饮食 · {dietPlan.period}
+          </div>
+        </div>
+        <div style={{
+          fontSize: 11, fontWeight: 700,
+          padding: '4px 10px', borderRadius: 20,
+          background: 'rgba(93,100,214,.1)',
+          color: '#5d64d6',
+          border: '1px solid rgba(93,100,214,.2)',
+        }}>
+          {dietPlan.target.calories} kcal / 天
+        </div>
       </div>
 
-      {/* 营养目标表格 */}
-      <div className="diet-nutrient-table-wrap" style={{ overflow: 'hidden', borderRadius: 12, border: '1px solid rgba(216,221,236,0.8)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr 0.9fr', gap: 10, padding: '10px 14px', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: '#76829d', fontWeight: 700, background: 'rgba(241,243,248,0.9)' }}>
-          <div>营养素 / Nutrient</div>
-          <div>目标值 / Target (Daily)</div>
-          <div>临床范围 / Clinical Range</div>
-          <div>状态 / Status</div>
-        </div>
-
-        {nutrientRows.map((row, idx) => (
-          <div key={row.name} style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr 0.9fr', gap: 10, padding: '12px 14px', background: idx % 2 ? 'rgba(255,255,255,0.74)' : 'rgba(248,250,253,0.74)', borderTop: idx ? '1px solid rgba(226,232,240,0.8)' : 'none' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#20253a' }}>{row.name}</div>
-            <div style={{ fontSize: 13, color: '#3a4358' }}>{row.target}</div>
-            <div style={{ fontSize: 13, color: '#6b7287' }}>{row.range}</div>
-            <div>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '4px 8px', borderRadius: 999, color: row.color, background: `${row.color}22` }}>{row.status}</span>
+      {/* 三大营养素卡片 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+        {[
+          {
+            label: '蛋白质',
+            value: dietPlan.target.protein,
+            unit: 'g',
+            pct: 25,
+            color: '#0D9488',
+            bg: 'rgba(13,148,136,.08)',
+            border: 'rgba(13,148,136,.2)',
+            min: Math.round(dietPlan.target.protein * 0.9),
+            max: Math.round(dietPlan.target.protein * 1.1),
+          },
+          {
+            label: '碳水',
+            value: dietPlan.target.carbs,
+            unit: 'g',
+            pct: 50,
+            color: '#5d64d6',
+            bg: 'rgba(93,100,214,.08)',
+            border: 'rgba(93,100,214,.2)',
+            min: Math.round(dietPlan.target.carbs * 0.95),
+            max: Math.round(dietPlan.target.carbs * 1.08),
+          },
+          {
+            label: '脂肪',
+            value: dietPlan.target.fat,
+            unit: 'g',
+            pct: 25,
+            color: '#D97706',
+            bg: 'rgba(217,119,6,.08)',
+            border: 'rgba(217,119,6,.2)',
+            min: Math.round(dietPlan.target.fat * 0.9),
+            max: Math.round(dietPlan.target.fat * 1.2),
+          },
+        ].map((macro) => (
+          <div key={macro.label} style={{
+            borderRadius: 12,
+            border: `1px solid ${macro.border}`,
+            background: macro.bg,
+            padding: '10px 10px 8px',
+          }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: macro.color, letterSpacing: '.08em', marginBottom: 4 }}>
+              {macro.label}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: '#1f2438', lineHeight: 1, letterSpacing: '-.02em' }}>
+              {macro.value}
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', marginLeft: 2 }}>{macro.unit}</span>
+            </div>
+            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 3 }}>
+              {macro.min}–{macro.max}{macro.unit}
+            </div>
+            {/* 进度条 */}
+            <div style={{ marginTop: 6, height: 3, borderRadius: 2, background: 'rgba(148,163,184,.2)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${macro.pct * 2}%`, background: macro.color, borderRadius: 2, opacity: .7 }} />
+            </div>
+            <div style={{ fontSize: 9, color: macro.color, marginTop: 3, fontWeight: 700 }}>
+              占比 {macro.pct}%
             </div>
           </div>
         ))}
       </div>
 
-      {/* 饮食建议 */}
-      <div style={{ marginTop: 12, padding: 10, background: 'rgba(93,100,214,0.08)', borderRadius: 8, border: '1px solid rgba(93,100,214,0.2)' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#4f56c8', marginBottom: 4 }}>💡 饮食建议 / Nutrition Tips</div>
-        <div style={{ fontSize: 11, color: '#5f677b', lineHeight: 1.4 }}>
-          • 保证充足蛋白质摄入，支持肌肉恢复与增长<br/>
-          • 适量碳水化合物为训练提供能量<br/>
-          • 健康脂肪维持激素平衡与整体健康<br/>
-          • 训练前后30分钟补充营养效果最佳
-        </div>
+      {/* 训练时间建议 */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+        {[
+          {
+            icon: '⚡',
+            label: '训练前 1 小时',
+            tip: '香蕉 + 少量蛋白质',
+            color: '#D97706',
+            bg: 'rgba(217,119,6,.06)',
+          },
+          {
+            icon: '💪',
+            label: '训练后 30 分钟',
+            tip: '乳清蛋白 + 快速碳水',
+            color: '#0D9488',
+            bg: 'rgba(13,148,136,.06)',
+          },
+        ].map((item) => (
+          <div key={item.label} style={{
+            borderRadius: 10,
+            background: item.bg,
+            border: `1px solid ${item.color}22`,
+            padding: '8px 10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+          }}>
+            <div style={{ fontSize: 14 }}>{item.icon}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: item.color }}>{item.label}</div>
+            <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4 }}>{item.tip}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 饮食原则（如果有notes就显示，没有显示默认一句话） */}
+      <div style={{
+        padding: '8px 12px',
+        borderRadius: 8,
+        background: 'rgba(248,250,253,.9)',
+        border: '1px solid rgba(226,232,240,.7)',
+        fontSize: 12,
+        color: '#64748b',
+        lineHeight: 1.6,
+      }}>
+        {dietPlan.notes || '优先天然食材，减少精制糖。每日饮水体重 × 35ml。'}
       </div>
     </div>
   );
@@ -1414,8 +1658,14 @@ function DietSection({ client }: { client: Client }) {
 
 // ── 档案 Tab ──────────────────────────────────────────────────
 function ProfileTab({ client }: { client: Client }) {
-  const wData = client.weeklyData || [];
-  const latest = wData.slice(-1)[0] || {};
+  const assessments = Array.isArray((client as any).assessments)
+    ? [...(client as any).assessments]
+        .filter((a: any) => a?.date)
+        .sort((a: any, b: any) =>
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+        )
+    : [];
+  const latestA = assessments[0] || {};
 
   return (
     <div>
@@ -1438,7 +1688,7 @@ function ProfileTab({ client }: { client: Client }) {
         {[
           { label: '深蹲活动度', value: '—', color: 'var(--p)' },
           { label: '肩关节活动度', value: '—', color: 'var(--a)' },
-          { label: '单腿平衡', value: (latest as any).balance ? `${(latest as any).balance}s` : '—', color: 'var(--g)' },
+          { label: '单腿平衡', value: (latestA as any).balance ? `${(latestA as any).balance}s` : '—', color: 'var(--g)' },
           { label: '训练方式', value: isPro(client.membershipLevel) ? '动力链训练' : '传统分化训练', color: 'var(--p)' },
         ].map((item) => (
           <div
@@ -1458,17 +1708,29 @@ function ProfileTab({ client }: { client: Client }) {
           ['姓名', client.name],
           ['性别', client.gender === 'female' ? '女' : '男'],
           ['年龄', client.age ? `${client.age}岁` : '—'],
-          ['身高', client.height ? `${client.height}cm` : '—'],
-          ['体重', (latest as any).weight ? `${(latest as any).weight}kg` : client.weight ? `${client.weight}kg` : '—'],
+          ['身高', latestA.height ? `${latestA.height}cm` : client.height ? `${client.height}cm` : '—'],
+          ['体重', latestA.weight ? `${latestA.weight}kg` : client.weight ? `${client.weight}kg` : '—'],
+          ['体脂率', latestA.bf_pct != null ? `${latestA.bf_pct}%` : '—'],
+          ['骨骼肌', latestA.smm_kg != null ? `${latestA.smm_kg}kg` : '—'],
+          ['基础代谢', latestA.bmr != null ? `${latestA.bmr} kcal` : '—'],
+          ['最近体测', latestA.date || '—'],
           ['训练目标', client.goal || '—'],
           ['训练方式', membershipGroupLabel(client.membershipLevel)],
-          ['会员档位', client.membershipLevel === 'elite' ? 'Elite 至尊' : client.membershipLevel === 'professional' ? 'Professional 专业' : client.membershipLevel === 'advanced' ? 'Advanced 进阶' : 'Standard 基础'],
+          ['会员档位', client.membershipLevel === 'elite' ? 'Elite 至尊'
+            : client.membershipLevel === 'professional' ? 'Professional 专业'
+            : client.membershipLevel === 'advanced' ? 'Advanced 进阶'
+            : 'Standard 基础'],
           ['周期', client.weeks ? `${client.weeks}周` : '—'],
           ['路书码', client.roadCode || client.id],
         ].map(([k, v], idx) => (
-          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--s100)', fontSize: 13, background: idx % 2 === 0 ? 'rgba(248,250,253,0.5)' : undefined }}>
+          <div key={k} style={{
+            display: 'flex', justifyContent: 'space-between',
+            padding: '8px 0', fontSize: 12,
+            borderBottom: '1px solid var(--s100)',
+            background: idx % 2 === 0 ? 'transparent' : 'rgba(248,250,253,.5)',
+          }}>
             <span style={{ color: 'var(--s500)' }}>{k}</span>
-            <span style={{ fontWeight: 500 }}>{v}</span>
+            <span style={{ fontWeight: 600, color: 'var(--s800)' }}>{v}</span>
           </div>
         ))}
       </div>

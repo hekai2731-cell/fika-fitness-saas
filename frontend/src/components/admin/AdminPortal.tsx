@@ -46,6 +46,9 @@ interface Client {
   deletedAt?: string;
   deletedByCoachCode?: string;
   deletedByCoachName?: string;
+  membershipLevel?: string;
+  bodyMetrics?: Record<string, number | undefined>;
+  assessments?: Array<Record<string, unknown>>;
 }
 
 interface DietPlan {
@@ -776,7 +779,24 @@ function ClientsTab({
 }) {
   const [showModal, setShowModal] = useState(false);
   const [viewPlanClient, setViewPlanClient] = useState<Client | null>(null);
-  const [form, setForm] = useState({ name: '', tier: 'pro', gender: 'male', age: '25', weeks: '15', goal: '' });
+  const [form, setForm] = useState({
+    name: '',
+    gender: 'male',
+    age: '',
+    membershipLevel: 'standard',
+    weeks: '15',
+    goal: '',
+    weight: '',
+    height: '',
+    bf_pct: '',
+    smm_kg: '',
+    waist_cm: '',
+    hip_cm: '',
+    rhr: '',
+    sleep_hours: '',
+    training_age_months: '',
+    notes: '',
+  });
   const activeClients = clients.filter((c) => !c.deletedAt);
   const deletedClients = clients.filter((c) => !!c.deletedAt);
 
@@ -793,30 +813,109 @@ function ClientsTab({
   };
 
   const addClient = () => {
-    if (!form.name.trim()) return;
-    const existingCodes = new Set(clients.map((c) => String(c.roadCode || '').toUpperCase()).filter(Boolean));
+    if (!form.name.trim()) { alert('请填写客户姓名'); return; }
+    if (!form.age) { alert('请填写年龄'); return; }
+    if (!form.weight) { alert('请填写体重（首次体测必填）'); return; }
+    if (!form.height) { alert('请填写身高（首次体测必填）'); return; }
+    if (!form.bf_pct) { alert('请填写体脂率（首次体测必填）'); return; }
+
+    const w = parseFloat(form.weight);
+    const h = parseFloat(form.height);
+    const age = parseInt(form.age);
+    const isMale = form.gender !== 'female';
+    const bf = parseFloat(form.bf_pct);
+    const smm_kg = form.smm_kg ? parseFloat(form.smm_kg) : undefined;
+    const waist = form.waist_cm ? parseFloat(form.waist_cm) : undefined;
+    const hip = form.hip_cm ? parseFloat(form.hip_cm) : undefined;
+    const rhr = form.rhr ? parseFloat(form.rhr) : undefined;
+    const sleep = form.sleep_hours ? parseFloat(form.sleep_hours) : undefined;
+    const trainAge = form.training_age_months ? parseFloat(form.training_age_months) : undefined;
+
+    const fat_kg = +((w * bf / 100).toFixed(2));
+    const lean_kg = +((w - fat_kg).toFixed(2));
+    const smm_pct = smm_kg ? +((smm_kg / w * 100).toFixed(1)) : undefined;
+    const bmi = +(w / ((h / 100) ** 2)).toFixed(1);
+    const whr = (waist && hip) ? +(waist / hip).toFixed(2) : undefined;
+    const bmr = Math.round(
+      isMale
+        ? 10 * w + 6.25 * h - 5 * age + 5
+        : 10 * w + 6.25 * h - 5 * age - 161
+    );
+
+    const bodyMetrics = {
+      bf_pct: bf,
+      smm_kg,
+      smm_pct,
+      waist_cm: waist,
+      hip_cm: hip,
+      rhr,
+      sleep_hours: sleep,
+      training_age_months: trainAge,
+      fat_kg,
+      lean_kg,
+      bmi,
+      whr,
+      bmr,
+    };
+
+    const firstAssessment = {
+      date: new Date().toISOString().slice(0, 10),
+      weight: w,
+      height: h,
+      bf_pct: bf,
+      fat_kg,
+      lean_kg,
+      smm_kg,
+      smm_pct,
+      waist_cm: waist,
+      hip_cm: hip,
+      whr,
+      rhr,
+      bmr,
+      bmi,
+      sleep_hours: sleep,
+      training_age_months: trainAge,
+      notes: form.notes || '初次建档体测',
+      score_snapshot: 0,
+    };
+
+    const existingCodes = new Set(
+      clients.map((c) => String(c.roadCode || '').toUpperCase()).filter(Boolean)
+    );
+
     const newClient: Client = {
       id: 'CL' + Date.now(),
       roadCode: generateRandomCode(existingCodes, 6),
-      name: form.name,
+      name: form.name.trim(),
       gender: form.gender,
-      age: 0,
-      height: 0,
-      weight: 0,
-      tier: form.tier,
-      goal: '',
+      age,
+      height: h,
+      weight: w,
+      tier: (form.membershipLevel === 'professional' || form.membershipLevel === 'elite') ? 'pro' : 'standard',
+      membershipLevel: form.membershipLevel as any,
+      goal: form.goal || '',
       injury: '',
       blocks: [],
       sessions: [],
       weeklyData: [],
       dietPlans: [],
+      bodyMetrics,
+      assessments: [firstAssessment],
     };
+
     const updated = [...clients, newClient];
     onClientsChange(updated);
     persistClientsToStores(updated);
     void syncClientToServer(newClient).catch((err) => {
       console.error('[AdminPortal] Failed to sync new client:', err);
       alert('客户已在本地新增，但同步服务器失败，请检查网络后重试。');
+    });
+
+    setForm({
+      name: '', gender: 'male', age: '', membershipLevel: 'standard',
+      weeks: '15', goal: '', weight: '', height: '', bf_pct: '',
+      smm_kg: '', waist_cm: '', hip_cm: '', rhr: '', sleep_hours: '',
+      training_age_months: '', notes: '',
     });
     setShowModal(false);
   };
@@ -1081,65 +1180,146 @@ function ClientsTab({
                 取消
               </button>
               <button className="btn btn-p" onClick={addClient}>
-                创建
+                创建并建档
               </button>
             </>
           }
         >
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {/* 基本信息 */}
+          <div style={{
+            fontSize: 10, fontWeight: 800, color: '#8a90a6',
+            letterSpacing: '.14em', textTransform: 'uppercase',
+            paddingBottom: 8, borderBottom: '1px solid rgba(216,221,236,.4)',
+            marginBottom: 12,
+          }}>
+            基本信息
+          </div>
+          <div className="grid2" style={{ marginBottom: 12 }}>
             <div>
-              <FieldLabel>姓名</FieldLabel>
-              <input
-                className="inp"
-                placeholder="客户姓名"
+              <FieldLabel>姓名 *</FieldLabel>
+              <input className="inp" placeholder="客户姓名"
                 value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              />
+                onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div>
-              <FieldLabel>性别</FieldLabel>
-              <select className="select" value={form.gender} onChange={(e) => setForm((f) => ({ ...f, gender: e.target.value }))}>
+              <FieldLabel>性别 *</FieldLabel>
+              <select className="select" value={form.gender}
+                onChange={(e) => setForm(f => ({ ...f, gender: e.target.value }))}>
                 <option value="male">男</option>
                 <option value="female">女</option>
               </select>
             </div>
             <div>
-              <FieldLabel>训练档位</FieldLabel>
-              <select className="select" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: e.target.value }))}>
+              <FieldLabel>年龄 *</FieldLabel>
+              <input className="inp" type="number" placeholder="如：28"
+                value={form.age}
+                onChange={(e) => setForm(f => ({ ...f, age: e.target.value }))} />
+            </div>
+            <div>
+              <FieldLabel>会员档位 *</FieldLabel>
+              <select className="select" value={form.membershipLevel}
+                onChange={(e) => setForm(f => ({ ...f, membershipLevel: e.target.value }))}>
                 <option value="standard">Standard 基础</option>
-                <option value="pro">Pro 进阶</option>
-                <option value="ultra">Ultra 高级</option>
+                <option value="advanced">Advanced 进阶</option>
+                <option value="professional">Professional 专业</option>
+                <option value="elite">Elite 至尊</option>
               </select>
             </div>
             <div>
-              <FieldLabel>年龄</FieldLabel>
-              <input
-                className="inp"
-                type="number"
-                placeholder="25"
-                value={form.age}
-                onChange={(e) => setForm((f) => ({ ...f, age: e.target.value }))}
-              />
+              <FieldLabel>训练周期（周）</FieldLabel>
+              <input className="inp" type="number" placeholder="15"
+                value={form.weeks}
+                onChange={(e) => setForm(f => ({ ...f, weeks: e.target.value }))} />
             </div>
             <div>
-              <FieldLabel>周期(周)</FieldLabel>
-              <input
-                className="inp"
-                type="number"
-                placeholder="15"
-                value={form.weeks}
-                onChange={(e) => setForm((f) => ({ ...f, weeks: e.target.value }))}
-              />
+              <FieldLabel>训练目标</FieldLabel>
+              <input className="inp" placeholder="如：增肌减脂"
+                value={form.goal}
+                onChange={(e) => setForm(f => ({ ...f, goal: e.target.value }))} />
             </div>
           </div>
+
+          {/* 首次体测数据 */}
+          <div style={{
+            fontSize: 10, fontWeight: 800, color: '#8a90a6',
+            letterSpacing: '.14em', textTransform: 'uppercase',
+            paddingBottom: 8, borderBottom: '1px solid rgba(216,221,236,.4)',
+            marginBottom: 12,
+          }}>
+            首次体测数据（必填）
+          </div>
+          <div className="grid2" style={{ marginBottom: 12 }}>
+            {[
+              { key: 'weight', label: '体重 (kg) *', placeholder: '如：65.5' },
+              { key: 'height', label: '身高 (cm) *', placeholder: '如：170' },
+              { key: 'bf_pct', label: '体脂率 (%) *', placeholder: '如：18.5' },
+              { key: 'smm_kg', label: '骨骼肌 (kg)', placeholder: '如：28.5' },
+              { key: 'waist_cm', label: '腰围 (cm)', placeholder: '如：76' },
+              { key: 'hip_cm', label: '髋围 (cm)', placeholder: '如：92' },
+              { key: 'rhr', label: '静息心率 (bpm)', placeholder: '如：62' },
+              { key: 'sleep_hours', label: '睡眠时长 (h/晚)', placeholder: '如：7.5' },
+            ].map(f => (
+              <div key={f.key}>
+                <FieldLabel>{f.label}</FieldLabel>
+                <input
+                  className="inp"
+                  type="number"
+                  placeholder={f.placeholder}
+                  value={(form as any)[f.key]}
+                  onChange={(e) => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* 自动计算预览 */}
+          {form.weight && form.bf_pct && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 10, marginBottom: 12,
+              background: 'rgba(93,100,214,.06)',
+              border: '1px solid rgba(93,100,214,.15)',
+              display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8,
+            }}>
+              {[
+                {
+                  label: '脂肪重量',
+                  value: `${(+form.weight * +form.bf_pct / 100).toFixed(1)}kg`,
+                  color: '#D97706',
+                },
+                {
+                  label: '去脂体重',
+                  value: `${(+form.weight - +form.weight * +form.bf_pct / 100).toFixed(1)}kg`,
+                  color: '#0D9488',
+                },
+                {
+                  label: 'BMI',
+                  value: form.height
+                    ? (+form.weight / ((+form.height / 100) ** 2)).toFixed(1)
+                    : '--',
+                  color: '#5d64d6',
+                },
+                {
+                  label: '腰臀比',
+                  value: (form.waist_cm && form.hip_cm)
+                    ? (+form.waist_cm / +form.hip_cm).toFixed(2)
+                    : '--',
+                  color: '#2563EB',
+                },
+              ].map(item => (
+                <div key={item.label} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, color: '#8a90a6', marginBottom: 2 }}>{item.label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: item.color }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 备注 */}
           <div>
-            <FieldLabel>训练目标</FieldLabel>
-            <input
-              className="inp"
-              placeholder="功能性力量提升"
-              value={form.goal}
-              onChange={(e) => setForm((f) => ({ ...f, goal: e.target.value }))}
-            />
+            <FieldLabel>备注（选填）</FieldLabel>
+            <input className="inp" placeholder="初次建档备注..."
+              value={form.notes}
+              onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
         </Modal>
       )}
