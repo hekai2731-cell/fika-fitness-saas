@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Client } from '@/lib/db';
 import { CoachShell, type CoachTab } from '../components/coach/CoachShell';
 import { CoachClientSelectPage } from '../components/coach/CoachClientSelectPage';
@@ -8,7 +8,7 @@ import { FinancePage } from '../components/coach/FinancePage';
 import { HeartRatePage } from '../components/coach/HeartRatePage';
 import { DietPage } from '../components/coach/DietPage';
 import { CoachSessionView } from '../components/CoachSessionView';
-import { getClientsFromCache, updateClientsCache } from '@/lib/store';
+import { getClientsFromCache, updateClientsCache, refreshClients } from '@/lib/store';
 import { useSessions } from '@/features/sessions/useSessions';
 
 export function CoachPortal({
@@ -21,6 +21,23 @@ export function CoachPortal({
   coachCode?: string | null;
 }) {
   const [tab, setTab] = useState<CoachTab>('clients');
+
+  // ── 多设备数据同步：轮询 + focus 刷新 ──
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!coachCode) return;
+    const doRefresh = () => void refreshClients();
+    const onFocus = () => doRefresh();
+    window.addEventListener('focus', onFocus);
+    pollingRef.current = setInterval(doRefresh, 15000);
+    doRefresh();
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [coachCode]);
+  // ── end 同步逻辑 ──
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [sessionClient, setSessionClient] = useState<Client | null>(null);

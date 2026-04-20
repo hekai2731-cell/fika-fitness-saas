@@ -104,6 +104,25 @@ router.post('/batch', async (req, res) => {
   }
 });
 
+// PATCH /api/clients/:id — 局部更新（体测数据、bodyMetrics 等）
+router.patch('/:id', async (req, res) => {
+  try {
+    const c = await col();
+    const patch = { ...req.body, updatedAt: new Date().toISOString() };
+    // 用 $set 做局部更新，不覆盖整个文档
+    const result = await c.updateOne(
+      { id: req.params.id },
+      { $set: patch }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   try {
     const c = await col();

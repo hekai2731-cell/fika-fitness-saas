@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import { Button } from '@/components/ui/button';
 import type { Client } from '@/lib/db';
 import { calcBodyAssetScore } from '@/lib/bodyAssetScore';
-import { getClientsFromCache, saveClient as saveClientAsync } from '@/lib/store';
+import { getClientsFromCache, saveClient as saveClientAsync, loadClients, updateClientsCache } from '@/lib/store';
 
 type MembershipLevel = 'standard' | 'advanced' | 'professional' | 'elite';
 
@@ -161,6 +161,8 @@ export function ClientsPage({
     bf_pct: '',
     rhr: '',
     tier: 'standard',
+    goal: '',
+    injury: '',
   });
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [approvalSuccess, setApprovalSuccess] = useState<string | null>(null);
@@ -192,7 +194,11 @@ export function ClientsPage({
     };
     reload();
     window.addEventListener('storage', reload);
-    return () => window.removeEventListener('storage', reload);
+    window.addEventListener('fika:clients-refreshed', reload);
+    return () => {
+      window.removeEventListener('storage', reload);
+      window.removeEventListener('fika:clients-refreshed', reload);
+    };
   }, [selectedClientId]);
 
   useEffect(() => {
@@ -235,17 +241,17 @@ export function ClientsPage({
     const loadPendingSurveys = async () => {
       try {
         const res = await fetch(`/api/survey/pending?coachCode=${encodeURIComponent(coachCode)}`);
-        if (!res.ok) {
-          console.error('[clients] load pending surveys failed:', res.status);
-          return;
-        }
+        if (!res.ok) return;
         const surveys = (await res.json()) as any[];
         setPendingSurveys(surveys);
-      } catch (e) {
-        console.error('[clients] load pending surveys error:', e);
+      } catch {
+        // 静默失败，不影响主界面
       }
     };
     loadPendingSurveys();
+    // 每30秒自动刷新，教练不用手动刷页面就能看到新问卷
+    const timer = setInterval(loadPendingSurveys, 30000);
+    return () => clearInterval(timer);
   }, [coachCode]);
 
   // 拉取规则
@@ -300,7 +306,7 @@ export function ClientsPage({
 
       // 等待异步保存完成
       await saveClientAsync(updatedClient);
-      console.log('[ClientsPage] 档位已保存:', updatedClient.id, nextTier);
+
     } catch (e: any) {
       console.error('[ClientsPage] 档位切换失败:', e);
     } finally {
@@ -436,6 +442,8 @@ export function ClientsPage({
           bf_pct,
           rhr,
           tier: approvalForm.tier,
+          goal: approvalForm.goal.trim() || undefined,
+          injury: approvalForm.injury.trim() || undefined,
           coachCode,
         }),
       });
@@ -457,10 +465,19 @@ export function ClientsPage({
         bf_pct: '',
         rhr: '',
         tier: 'standard',
+        goal: '',
+        injury: '',
       });
 
       setApprovalSuccess(`建档成功，路书码：${result.roadCode}`);
-      setTimeout(() => setApprovalSuccess(null), 3000);
+      setTimeout(() => setApprovalSuccess(null), 4000);
+
+      // 重新从服务器拉取客户列表，让新客户立刻出现
+      void loadClients().then((fresh) => {
+        updateClientsCache(fresh);
+        window.dispatchEvent(new CustomEvent('fika:clients-refreshed'));
+        window.dispatchEvent(new Event('storage'));
+      });
     } catch (e) {
       console.error('[clients] approve survey failed', e);
       setApprovalError('审核失败，请稍后重试');
@@ -744,6 +761,34 @@ export function ClientsPage({
                             <option value="ultra">至尊会员</option>
                           </select>
 
+                          <input
+                            type="text"
+                            placeholder="训练目标（自动从问卷带入，可修改）"
+                            value={approvalForm.goal}
+                            onChange={(e) => setApprovalForm((p) => ({ ...p, goal: e.target.value }))}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(109,84,234,.3)',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="伤病说明（选填）"
+                            value={approvalForm.injury}
+                            onChange={(e) => setApprovalForm((p) => ({ ...p, injury: e.target.value }))}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(109,84,234,.3)',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                            }}
+                          />
                           {approvalError && (
                             <div style={{ fontSize: 12, color: '#dc2626' }}>{approvalError}</div>
                           )}
@@ -787,17 +832,44 @@ export function ClientsPage({
                           </div>
                         </div>
                       ) : (
-                        <div onClick={() => setApprovingId(survey._id)}>
-                          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{survey.name}</div>
-                          <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>电话：{survey.phone}</div>
-                          <div style={{ fontSize: 11, color: '#999' }}>
-                            提交时间：{new Date(survey.submittedAt).toLocaleString('zh-CN')}
+                        <div onClick={() => {
+                          setApprovingId(survey._id);
+                          const goalMap: Record<string, string> = { fat_loss:'减脂塑形', muscle_gain:'增肌', performance:'提升体能', posture:'改善姿态', rehabilitation:'功能康复' };
+                          const goalText = survey.profile?.goal_type ? (goalMap[survey.profile.goal_type] || '') : '';
+                          setApprovalForm(p => ({ ...p, goal: goalText }));
+                        }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, color: '#1a1a2e' }}>{survey.name}</div>
+                          <div style={{ fontSize: 11, color: '#555', marginBottom: 2 }}>📱 {survey.phone}</div>
+                          <div style={{ fontSize: 10, color: '#999', marginBottom: 8 }}>
+                            提交于 {new Date(survey.submittedAt).toLocaleString('zh-CN')}
                           </div>
-                          {survey.profile && (
-                            <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
-                              目标：{survey.profile.goal_type || '未选择'} | 预算：{survey.profile.budget_level || '未选择'}
-                            </div>
-                          )}
+                          {survey.profile && (() => {
+                            const p = survey.profile;
+                            const goalMap: Record<string, string> = { fat_loss:'减脂塑形', muscle_gain:'增肌', performance:'提升体能', posture:'改善姿态', rehabilitation:'功能康复' };
+                            const expMap: Record<string, string> = { none:'无经历', irregular:'断断续续', 'regular_6m+':'规律6个月+' };
+                            const budgetMap: Record<string, string> = { under_1000:'1000以下', '1000_3000':'1000-3000元', over_3000:'3000以上' };
+                            const freqMap: Record<number, string> = { 1:'每周1次', 2:'每周2次', 3:'每周3次', 4:'每周3次以上' };
+                            const ageMap: Record<string, string> = { '18-25':'18-25岁', '26-35':'26-35岁', '36-45':'36-45岁', '45+':'45岁以上' };
+                            const items = [
+                              p.age_range && ['年龄', ageMap[p.age_range] || p.age_range],
+                              p.goal_type && ['目标', goalMap[p.goal_type] || p.goal_type],
+                              p.training_experience && ['经历', expMap[p.training_experience] || p.training_experience],
+                              p.weekly_frequency_plan && ['频率', freqMap[p.weekly_frequency_plan] || `每周${p.weekly_frequency_plan}次`],
+                              p.budget_level && ['预算', budgetMap[p.budget_level] || p.budget_level],
+                              p.sleep_quality && ['睡眠', ({ good:'好', average:'一般', poor:'差' } as Record<string,string>)[p.sleep_quality] || p.sleep_quality],
+                              p.stress_level && ['压力', ({ low:'轻松', medium:'中等', high:'高压' } as Record<string,string>)[p.stress_level] || p.stress_level],
+                            ].filter(Boolean) as [string, string][];
+                            return (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px' }}>
+                                {items.map(([k, v]) => (
+                                  <span key={k} style={{ fontSize: 10, color: '#444', background: 'rgba(109,84,234,.08)', padding: '2px 7px', borderRadius: 6 }}>
+                                    {k}：{v}
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                          <div style={{ fontSize: 10, color: '#999', marginTop: 6 }}>点击展开建档 →</div>
                         </div>
                       )}
                     </div>

@@ -716,7 +716,11 @@ export function PlanningPage({
       if (fresh) setClient(prev => prev ? { ...prev, sessions: fresh.sessions, weeklyData: fresh.weeklyData } : fresh);
     };
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    window.addEventListener('fika:clients-refreshed', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('fika:clients-refreshed', onStorage);
+    };
   }, [selectedClientId]);
 
   
@@ -822,7 +826,7 @@ export function PlanningPage({
       if (merged.published_blocks == null && prev?.published_blocks) merged.published_blocks = prev.published_blocks;
       if (merged.plan_published_at == null && prev?.plan_published_at) merged.plan_published_at = prev.plan_published_at;
       // 双写到 /api/plans（fire-and-forget）
-      void planSaveDraft(merged.blocks || []).catch((e: unknown) => console.warn('[PlanningPage] plan dual-write failed:', e));
+      void planSaveDraft(merged.blocks || []).catch(() => {});
     } else {
       if (merged.plan_draft_version == null) merged.plan_draft_version = Number(prev?.plan_draft_version || 1);
       if (merged.plan_draft_status == null) merged.plan_draft_status = (prev as any)?.plan_draft_status || 'draft';
@@ -920,7 +924,7 @@ export function PlanningPage({
         setPublishToast(true);
         window.setTimeout(() => setPublishToast(false), 3000);
         // 双写到 /api/plans
-        void planPublish((client as any).coachCode || '', (client as any).coachName || '').catch((e: unknown) => console.warn('[PlanningPage] plan publish dual-write failed:', e));
+        void planPublish((client as any).coachCode || '', (client as any).coachName || '').catch(() => {});
       }
     } catch (e: any) {
       setError('发布失败：' + (e?.message || String(e)));
@@ -1892,13 +1896,13 @@ export function PlanningPage({
 
       {publishToast && (
         <div style={{
-          position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
+          position: 'fixed', top: 20, left: '50%',
           zIndex: 9999, background: '#16a34a', color: '#fff',
           padding: '8px 20px', borderRadius: 20,
           fontSize: 13, fontWeight: 700,
           boxShadow: '0 4px 16px rgba(22,163,74,.35)',
           pointerEvents: 'none',
-          animation: 'fadeInDown .2s ease',
+          animation: 'fadeInDown .25s cubic-bezier(.34,1.56,.64,1)',
         }}>
           已发布 ✓
         </div>

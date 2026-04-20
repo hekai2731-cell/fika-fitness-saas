@@ -141,7 +141,8 @@ export function useAuth() {
 
   // 管理员登录
   const handleAdminLogin = useCallback((pass: string, remember: boolean): boolean => {
-    if (pass !== 'fika2024') return false;
+    const adminPass = (import.meta as any).env?.VITE_ADMIN_PASS || 'fika2024';
+    if (pass !== adminPass) return false;
     persistSession({ role: 'admin' }, remember);
     persistLastLogin({}, remember);
     setPage('admin');

@@ -743,7 +743,7 @@ app.get('/api/survey/pending', async (req, res) => {
 app.post('/api/survey/approve/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { weight, height, bf_pct, rhr, tier, coachCode } = req.body;
+    const { weight, height, bf_pct, rhr, tier, coachCode, goal, injury } = req.body;
 
     const db = mongoose.connection.db;
     if (!db) {
@@ -776,7 +776,7 @@ app.post('/api/survey/approve/:id', async (req, res) => {
       id: `client-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       name: survey.name,
       roadCode,
-      coachCode: String(coachCode).toUpperCase(),
+      coachCode: String(survey.coachCode || coachCode || '').toUpperCase(),
       tier: tier || 'standard',
       gender: normalizedGender,
       age: 0,
@@ -784,8 +784,8 @@ app.post('/api/survey/approve/:id', async (req, res) => {
       weight: weight ? Number(weight) : 0,
       bodyFat: bf_pct ? Number(bf_pct) : null,
       rhr: rhr ? Number(rhr) : null,
-      goal: '',
-      injury: '',
+      goal: goal ? String(goal).trim() : (survey.profile?.goal_type ? ({ fat_loss:'减脂塑形', muscle_gain:'增肌', performance:'提升体能', posture:'改善姿态', rehabilitation:'功能康复' }[survey.profile.goal_type] || '') : ''),
+      injury: injury ? String(injury).trim() : '',
       weeklyData: [],
       start_date: new Date().toISOString(),
       current_week: 1,

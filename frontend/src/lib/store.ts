@@ -168,3 +168,19 @@ export function seedClients(): Client[] {
     } as Client,
   ];
 }
+
+/**
+ * 从服务器强制刷新客户缓存，并触发全局通知让各页面重新渲染
+ * 用于多设备同步：教练改完数据，其他设备自动更新
+ */
+export async function refreshClients(): Promise<void> {
+  try {
+    const res = await fetch('/api/clients');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const clients = await res.json();
+    clientsCache = Array.isArray(clients) ? clients : [];
+    window.dispatchEvent(new CustomEvent('fika:clients-refreshed'));
+  } catch (e) {
+    console.warn('[store] refreshClients failed:', e);
+  }
+}

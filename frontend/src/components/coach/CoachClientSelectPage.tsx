@@ -29,8 +29,13 @@ export function CoachClientSelectPage({
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [newName, setNewName] = useState('');
-  const [newTier, setNewTier] = useState<NonNullable<Client['tier']>>('standard');
   const [newGoal, setNewGoal] = useState('');
+  const [newGender, setNewGender] = useState<'male' | 'female'>('male');
+  const [newAge, setNewAge] = useState('');
+  const [newHeight, setNewHeight] = useState('');
+  const [newWeight, setNewWeight] = useState('');
+  const [newInjury, setNewInjury] = useState('');
+  const [newMembershipLevel, setNewMembershipLevel] = useState<'standard' | 'advanced' | 'professional' | 'elite'>('standard');
   const [showRecruitmentCode, setShowRecruitmentCode] = useState(false);
   const [recruitmentQrUrl, setRecruitmentQrUrl] = useState('');
 
@@ -80,16 +85,19 @@ export function CoachClientSelectPage({
     const name = newName.trim();
     if (!name) return;
     const roadCode = genRoadCode();
+    const tierFromLevel = (newMembershipLevel === 'professional' || newMembershipLevel === 'elite') ? 'pro' : 'standard';
     const newClient: Client = {
       id: `CL${Date.now()}`,
       name,
       roadCode: roadCode as any,
-      tier: newTier,
-      age: 0,
-      height: 0,
-      weight: 0,
-      goal: '',
-      injury: '',
+      tier: tierFromLevel,
+      membershipLevel: newMembershipLevel,
+      gender: newGender,
+      age: newAge ? parseInt(newAge) : 0,
+      height: newHeight ? parseFloat(newHeight) : 0,
+      weight: newWeight ? parseFloat(newWeight) : 0,
+      goal: newGoal || '',
+      injury: newInjury || '',
       weeklyData: [],
       start_date: '',
       current_week: 0,
@@ -109,8 +117,13 @@ export function CoachClientSelectPage({
     refreshClients();
     setCreateOpen(false);
     setNewName('');
-    setNewTier('standard');
     setNewGoal('');
+    setNewGender('male');
+    setNewAge('');
+    setNewHeight('');
+    setNewWeight('');
+    setNewInjury('');
+    setNewMembershipLevel('standard');
   };
 
   const confirmDeleteClient = () => {
@@ -349,15 +362,48 @@ export function CoachClientSelectPage({
               <div style={{ width: '100%', maxWidth: 420, borderRadius: 16, border: '1px solid rgba(255,255,255,.34)', background: 'linear-gradient(150deg, rgba(255,255,255,.18), rgba(214,224,255,.14))', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', boxShadow: '0 20px 40px rgba(8,10,20,.35)', padding: 14 }}
                 onClick={(e) => e.stopPropagation()}>
                 <div style={{ fontSize: 18, fontWeight: 900, color: '#f4f7ff' }}>新增客户</div>
-                <div style={{ marginTop: 4, fontSize: 12, color: 'rgba(223,231,255,.82)' }}>填写姓名 / 档位 / 目标</div>
-                <div style={{ marginTop: 12, display: 'grid', gap: 9 }}>
-                  <input className="inp" placeholder="客户姓名" value={newName} onChange={(e) => setNewName(e.target.value)} />
-                  <select className="inp" value={newTier} onChange={(e) => setNewTier(e.target.value as NonNullable<Client['tier']>)}>
-                    <option value="standard">Standard</option>
-                    <option value="pro">Pro</option>
-                    <option value="ultra">Elite</option>
-                  </select>
-                  <textarea className="inp" placeholder="训练目标" value={newGoal} onChange={(e) => setNewGoal(e.target.value)} rows={3} style={{ resize: 'none', paddingTop: 8 }} />
+                <div style={{ marginTop: 4, fontSize: 12, color: 'rgba(223,231,255,.82)' }}>填写基本信息，AI 生成课程时会自动使用</div>
+                <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <div style={{ fontSize: 10, color: 'rgba(223,231,255,.6)', marginBottom: 4 }}>姓名 *</div>
+                    <input className="inp" placeholder="客户姓名" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: 'rgba(223,231,255,.6)', marginBottom: 4 }}>性别</div>
+                    <select className="inp" value={newGender} onChange={(e) => setNewGender(e.target.value as 'male' | 'female')}>
+                      <option value="male">男</option>
+                      <option value="female">女</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: 'rgba(223,231,255,.6)', marginBottom: 4 }}>年龄</div>
+                    <input className="inp" type="number" placeholder="如：28" value={newAge} onChange={(e) => setNewAge(e.target.value)} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: 'rgba(223,231,255,.6)', marginBottom: 4 }}>身高 (cm)</div>
+                    <input className="inp" type="number" placeholder="如：170" value={newHeight} onChange={(e) => setNewHeight(e.target.value)} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: 'rgba(223,231,255,.6)', marginBottom: 4 }}>体重 (kg)</div>
+                    <input className="inp" type="number" placeholder="如：65" value={newWeight} onChange={(e) => setNewWeight(e.target.value)} />
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <div style={{ fontSize: 10, color: 'rgba(223,231,255,.6)', marginBottom: 4 }}>会员档位</div>
+                    <select className="inp" value={newMembershipLevel} onChange={(e) => setNewMembershipLevel(e.target.value as any)}>
+                      <option value="standard">Standard 基础</option>
+                      <option value="advanced">Advanced 进阶</option>
+                      <option value="professional">Professional 专业</option>
+                      <option value="elite">Elite 至尊</option>
+                    </select>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <div style={{ fontSize: 10, color: 'rgba(223,231,255,.6)', marginBottom: 4 }}>训练目标</div>
+                    <input className="inp" placeholder="如：减脂增肌" value={newGoal} onChange={(e) => setNewGoal(e.target.value)} />
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <div style={{ fontSize: 10, color: 'rgba(223,231,255,.6)', marginBottom: 4 }}>伤病说明（选填）</div>
+                    <input className="inp" placeholder="如：右膝半月板，避免深蹲" value={newInjury} onChange={(e) => setNewInjury(e.target.value)} />
+                  </div>
                 </div>
                 <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                   <button className="btn btn-ghost" type="button" onClick={() => setCreateOpen(false)}>取消</button>

@@ -265,7 +265,7 @@ export function SurveyPage() {
         <div style={styles.progressWrap}>
           <div style={styles.progressText}>{step === 0 ? '基本信息' : `第 ${step} 步 / 共 3 步`}</div>
           <div style={styles.progressTrack}>
-            <div style={{ ...styles.progressFill, width: `${(step / (coachCode ? 4 : 3)) * 100}%` }} />
+            <div style={{ ...styles.progressFill, width: `${Math.min(100, (step / 3) * 100)}%` }} />
           </div>
         </div>
 
